@@ -1,0 +1,144 @@
+basePath: /
+definitions:
+  models.ImportRequest:
+    properties:
+      atualizar_existente:
+        type: boolean
+      url:
+        type: string
+    required:
+    - url
+    type: object
+  models.ImportResponse:
+    properties:
+      mensagem:
+        type: string
+      oferta_id:
+        type: string
+      sucesso:
+        type: boolean
+      uuid_link:
+        type: string
+    type: object
+host: localhost:8081
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: API para importação de ofertas do Mobgran para Supabase
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: Mobgran Importer API
+  version: "1.0"
+paths:
+  /api/extrair-uuid:
+    post:
+      consumes:
+      - application/json
+      description: Extrai o UUID de uma URL do Mobgran
+      parameters:
+      - description: URL para extrair UUID
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Extrai UUID da URL
+      tags:
+      - utilidades
+  /api/importar:
+    post:
+      consumes:
+      - application/json
+      description: Importa dados de uma oferta do Mobgran para o Supabase
+      parameters:
+      - description: Dados da importação
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ImportRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ImportResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ImportResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ImportResponse'
+      summary: Importa uma oferta do Mobgran
+      tags:
+      - importacao
+  /api/validar-url:
+    post:
+      consumes:
+      - application/json
+      description: Valida se uma URL é um link válido do Mobgran
+      parameters:
+      - description: URL para validar
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Valida URL do Mobgran
+      tags:
+      - validacao
+  /health:
+    get:
+      description: Verifica se a aplicação está funcionando
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Health check
+      tags:
+      - health
+schemes:
+- http
+- https
+swagger: "2.0"

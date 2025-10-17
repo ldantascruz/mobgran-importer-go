@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mobgran-postgres
+    environment:
+      POSTGRES_DB: mobgran
+      POSTGRES_USER: mobgran_user
+      POSTGRES_PASSWORD: mobgran_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mobgran_user -d mobgran"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mobgran-importer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      - PORT=8080
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=mobgran
+      - DB_USER=mobgran_user
+      - DB_PASSWORD=mobgran_password
+      - DB_SSLMODE=disable
+      - LOG_LEVEL=debug
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Opcional: Nginx como proxy reverso
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - mobgran-importer
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
