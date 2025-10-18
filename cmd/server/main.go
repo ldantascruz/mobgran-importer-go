@@ -9,6 +9,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"mobgran-importer-go/internal/config"
 	"mobgran-importer-go/internal/handlers"
+	"mobgran-importer-go/internal/middleware"
 	"mobgran-importer-go/internal/services"
 	"mobgran-importer-go/pkg/database"
 	_ "mobgran-importer-go/docs"
@@ -54,8 +55,14 @@ func main() {
 	// Inicializar serviço de importação
 	importerService := services.NewMobgranImporter(dbClient, logger)
 
+	// Inicializar serviços de autenticação
+	authService := services.NewAuthService(dbClient.GetDB())
+	produtosService := services.NewProdutosService(dbClient.GetDB())
+
 	// Inicializar handlers
 	importerHandler := handlers.NewImporterHandler(importerService, logger)
+	authHandler := handlers.NewAuthHandler(authService)
+	produtosHandler := handlers.NewProdutosHandler(produtosService)
 
 	// Configurar Gin
 	if cfg.LogLevel != "debug" {
@@ -67,7 +74,9 @@ func main() {
 	// Middlewares
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-	router.Use(corsMiddleware())
+	router.Use(middleware.CORSMiddleware())
+	router.Use(middleware.LoggerMiddleware())
+	router.Use(middleware.RecoveryMiddleware())
 
 	// Rotas de saúde
 	router.GET("/health", importerHandler.HealthCheck)
@@ -87,6 +96,36 @@ func main() {
 		api.POST("/extrair-uuid", importerHandler.ExtrairUUID)
 	}
 
+	// Rotas de autenticação
+	auth := router.Group("/auth")
+	{
+		auth.POST("/registrar", authHandler.Registrar)
+		auth.POST("/login", authHandler.Login)
+		auth.POST("/refresh", authHandler.RefreshToken)
+		auth.POST("/logout", middleware.AuthMiddleware(), authHandler.Logout)
+		auth.GET("/perfil", middleware.AuthMiddleware(), authHandler.Perfil)
+		auth.PUT("/perfil", middleware.AuthMiddleware(), authHandler.AtualizarPerfil)
+	}
+
+	// Rotas de produtos (protegidas por autenticação)
+	produtos := router.Group("/produtos")
+	produtos.Use(middleware.AuthMiddleware())
+	{
+		produtos.GET("/cavaletes", produtosHandler.ListarCavaletesDisponiveis)
+		produtos.POST("/aprovar", produtosHandler.AprovarProduto)
+		produtos.GET("/aprovados", produtosHandler.ListarProdutosAprovados)
+		produtos.PUT("/:id", produtosHandler.AtualizarProduto)
+		produtos.GET("/:id", produtosHandler.BuscarProduto)
+		produtos.DELETE("/:id", produtosHandler.RemoverProduto)
+		produtos.GET("/estatisticas", produtosHandler.ObterEstatisticas)
+	}
+
+	// Rotas públicas de vitrine
+	vitrine := router.Group("/vitrine")
+	{
+		vitrine.GET("/publica", produtosHandler.ListarVitrinePublica)
+	}
+
 	// Rota do Swagger
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
@@ -96,21 +135,5 @@ func main() {
 
 	if err := router.Run(":" + port); err != nil {
 		logger.WithError(err).Fatal("Erro ao iniciar servidor")
-	}
-}
-
-// corsMiddleware adiciona headers CORS
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-
-		c.Next()
 	}
 }

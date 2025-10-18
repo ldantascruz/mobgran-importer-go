@@ -45,3 +45,6 @@ temp/
 # Build artifacts
 dist/
 build/
+
+
+documents/

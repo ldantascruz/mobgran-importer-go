@@ -51,6 +51,11 @@ func (c *Client) Close() error {
 	return c.db.Close()
 }
 
+// GetDB retorna a instância do banco de dados
+func (c *Client) GetDB() *sql.DB {
+	return c.db
+}
+
 // VerificarOfertaExistente verifica se uma oferta já existe pelo UUID
 func (c *Client) VerificarOfertaExistente(ofertaUUID string) (*string, error) {
 	var id string

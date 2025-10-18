@@ -33,6 +33,10 @@ services:
       - DB_PASSWORD=mobgran_password
       - DB_SSLMODE=disable
       - LOG_LEVEL=debug
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS}
+      - JWT_REFRESH_TOKEN_EXPIRATION_HOURS=${JWT_REFRESH_TOKEN_EXPIRATION_HOURS}
+      - JWT_ISSUER=${JWT_ISSUER}
     env_file:
       - .env
     depends_on:
