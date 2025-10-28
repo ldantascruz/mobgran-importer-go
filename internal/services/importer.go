@@ -1,10 +1,9 @@
 package services
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,50 +25,16 @@ type MobgranImporter struct {
 
 // NewMobgranImporter cria uma nova instância do importador
 func NewMobgranImporter(dbClient *database.Client, logger *logrus.Logger) *MobgranImporter {
-	// Configuração robusta do cliente HTTP com DNS melhorado e fallback para IPv4
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Se for www.mobgran.com, usar IPs diretos como fallback
-			if strings.Contains(addr, "www.mobgran.com") {
-				// Tentar primeiro IP
-				conn, err := (&net.Dialer{
-					Timeout:   60 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).DialContext(ctx, network, strings.Replace(addr, "www.mobgran.com", "44.199.173.30", 1))
-
-				if err != nil {
-					// Fallback para segundo IP
-					conn, err = (&net.Dialer{
-						Timeout:   60 * time.Second,
-						KeepAlive: 30 * time.Second,
-					}).DialContext(ctx, network, strings.Replace(addr, "www.mobgran.com", "52.7.93.87", 1))
-				}
-
-				return conn, err
-			}
-
-			// Para outros hosts, usar dialer padrão
-			return (&net.Dialer{
-				Timeout:   60 * time.Second,
-				KeepAlive: 30 * time.Second,
-				DualStack: false,
-			}).DialContext(ctx, network, addr)
-		},
-		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          10,
-		MaxIdleConnsPerHost:   2,
+	// Cliente HTTP simples e padrão
+	client := &http.Client{
+		Timeout: 60 * time.Second,
 	}
 
 	return &MobgranImporter{
-		dbClient: dbClient,
-		httpClient: &http.Client{
-			Timeout:   180 * time.Second,
-			Transport: transport,
-		},
+		dbClient:   dbClient,
+		httpClient: client,
 		logger:     logger,
-		apiBaseURL: "https://www.mobgran.com/app/api/v2.0/link-produto",
+		apiBaseURL: "https://www.mobgran.com/app/api/link-produto",
 	}
 }
 
@@ -97,14 +62,24 @@ func (m *MobgranImporter) BuscarDadosAPI(uuid string) (*models.MobgranResponse, 
 	m.logger.WithField("uuid", uuid).Info("Buscando dados da API Mobgran")
 
 	url := fmt.Sprintf("%s/%s", m.apiBaseURL, uuid)
+	m.logger.WithField("url_completa", url).Info("URL da API construída")
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+	req.Header.Set("Referer", "https://www.mobgran.com/")
+	req.Header.Set("Origin", "https://www.mobgran.com")
+
+	m.logger.WithFields(logrus.Fields{
+		"method":     req.Method,
+		"url":        req.URL.String(),
+		"headers":    req.Header,
+	}).Info("Fazendo requisição HTTP")
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
@@ -113,9 +88,19 @@ func (m *MobgranImporter) BuscarDadosAPI(uuid string) (*models.MobgranResponse, 
 	}
 	defer resp.Body.Close()
 
+	m.logger.WithFields(logrus.Fields{
+		"status_code": resp.StatusCode,
+		"headers":     resp.Header,
+	}).Info("Resposta recebida da API")
+
 	if resp.StatusCode != http.StatusOK {
-		m.logger.WithField("status_code", resp.StatusCode).Error("API retornou erro")
-		return nil, fmt.Errorf("API retornou status %d", resp.StatusCode)
+		// Ler o corpo da resposta para debug
+		body, _ := io.ReadAll(resp.Body)
+		m.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"body":        string(body),
+		}).Error("API retornou erro")
+		return nil, fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var dados models.MobgranResponse

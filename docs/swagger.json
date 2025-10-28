@@ -19,7 +19,7 @@
         },
         "version": "1.0"
     },
-    "host": "localhost:8081",
+    "host": "localhost:0",
     "basePath": "/",
     "paths": {
         "/api/extrair-uuid": {
