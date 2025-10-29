@@ -412,3 +412,66 @@ func (s *ProdutosService) ObterEstatisticas(traderID uuid.UUID) (*models.Estatis
 
 	return &stats, nil
 }
+
+// LimparTodosRegistros remove todos os registros do banco de dados
+func (s *ProdutosService) LimparTodosRegistros() error {
+	logrus.Info("Iniciando limpeza completa do banco de dados")
+
+	// Lista de tabelas para limpar na ordem correta (respeitando foreign keys)
+	tabelas := []string{
+		"produtos_aprovados",
+		"cavaletes", 
+		"ofertas",
+		"traders",
+	}
+
+	// Iniciar transação
+	tx, err := s.db.Begin()
+	if err != nil {
+		logrus.WithError(err).Error("Erro ao iniciar transação para limpeza")
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Limpar cada tabela
+	for _, tabela := range tabelas {
+		query := fmt.Sprintf("DELETE FROM %s", tabela)
+		
+		result, err := tx.Exec(query)
+		if err != nil {
+			logrus.WithError(err).WithField("tabela", tabela).Error("Erro ao limpar tabela")
+			return fmt.Errorf("erro ao limpar tabela %s: %w", tabela, err)
+		}
+
+		rowsAffected, _ := result.RowsAffected()
+		logrus.WithFields(logrus.Fields{
+			"tabela": tabela,
+			"registros_removidos": rowsAffected,
+		}).Info("Tabela limpa com sucesso")
+	}
+
+	// Resetar sequências (auto increment)
+	sequencias := []string{
+		"ALTER SEQUENCE traders_id_seq RESTART WITH 1",
+		"ALTER SEQUENCE ofertas_id_seq RESTART WITH 1", 
+		"ALTER SEQUENCE cavaletes_id_seq RESTART WITH 1",
+		"ALTER SEQUENCE produtos_aprovados_id_seq RESTART WITH 1",
+	}
+
+	for _, seq := range sequencias {
+		_, err := tx.Exec(seq)
+		if err != nil {
+			// Log do erro mas não falha a operação, pois as sequências podem não existir
+			logrus.WithError(err).WithField("sequencia", seq).Warn("Erro ao resetar sequência")
+		}
+	}
+
+	// Commit da transação
+	if err := tx.Commit(); err != nil {
+		logrus.WithError(err).Error("Erro ao fazer commit da limpeza")
+		return fmt.Errorf("erro ao fazer commit: %w", err)
+	}
+
+	logrus.Info("Limpeza completa do banco de dados concluída com sucesso")
+	return nil
+}

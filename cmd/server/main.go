@@ -126,6 +126,13 @@ func main() {
 		vitrine.GET("/publica", produtosHandler.ListarVitrinePublica)
 	}
 
+	// Rotas administrativas (protegidas por autenticação)
+	admin := router.Group("/admin")
+	admin.Use(middleware.AuthMiddleware())
+	{
+		admin.DELETE("/limpar-dados", produtosHandler.LimparTodosRegistros)
+	}
+
 	// Rota do Swagger
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 

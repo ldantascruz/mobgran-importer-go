@@ -364,3 +364,38 @@ func (h *ProdutosHandler) ObterEstatisticas(c *gin.Context) {
 
 	c.JSON(http.StatusOK, estatisticas)
 }
+
+// @Summary Limpar todos os registros do banco de dados
+// @Description Remove todos os registros de produtos, cavaletes, ofertas e dados relacionados do banco de dados
+// @Tags admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router /admin/limpar-dados [delete]
+func (h *ProdutosHandler) LimparTodosRegistros(c *gin.Context) {
+	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		return
+	}
+
+	logrus.WithField("trader_id", traderID).Info("Iniciando limpeza de todos os registros")
+
+	err = h.produtosService.LimparTodosRegistros()
+	if err != nil {
+		logrus.WithError(err).Error("Erro ao limpar todos os registros")
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"erro": "Erro interno do servidor ao limpar registros",
+		})
+		return
+	}
+
+	logrus.WithField("trader_id", traderID).Info("Limpeza de todos os registros concluída com sucesso")
+
+	c.JSON(http.StatusOK, gin.H{
+		"sucesso":  true,
+		"mensagem": "Todos os registros foram removidos com sucesso",
+	})
+}
