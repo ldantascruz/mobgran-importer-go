@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+*.md
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (serão copiados explicitamente se necessário)
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Build artifacts
+main
+server
+*.exe
+
+# Test files
+*_test.go
+testdata/
+
+# Air temporary files
+build-errors.log

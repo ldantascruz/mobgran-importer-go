@@ -17,7 +17,7 @@ import (
 
 // @title Mobgran Importer API
 // @version 1.0
-// @description API para importação de ofertas do Mobgran para Supabase
+// @description API para importação de ofertas do Mobgran para Supabase - HOT RELOAD FUNCIONANDO! 🔥
 // @termsOfService http://swagger.io/terms/
 
 // @contact.name API Support
@@ -82,7 +82,7 @@ func main() {
 	router.GET("/health", importerHandler.HealthCheck)
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Mobgran Importer API - Go",
+			"message": "Mobgran Importer API - Go 🔥 HOT RELOAD ATIVO!",
 			"version": "1.0.0",
 			"status":  "running",
 		})
