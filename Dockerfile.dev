@@ -1,11 +1,11 @@
 # Dockerfile para desenvolvimento com hot reload
-FROM golang:1.24-alpine
+FROM golang:1.22-alpine
 
 # Instalar dependências necessárias
 RUN apk add --no-cache git ca-certificates tzdata curl
 
-# Instalar Air para hot reload (versão compatível com Go 1.24)
-RUN go install github.com/air-verse/air@v1.61.1
+# Instalar Air para hot reload (versão compatível)
+RUN go install github.com/cosmtrek/air@v1.49.0
 
 # Definir diretório de trabalho
 WORKDIR /app

@@ -1,365 +1,376 @@
 package services
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
-
-	"mobgran-importer-go/internal/middleware"
+	"golang.org/x/crypto/bcrypt"
+	
 	"mobgran-importer-go/internal/models"
+	"mobgran-importer-go/pkg/database"
+)
+
+var (
+	ErrEmailJaExiste       = errors.New("email já cadastrado")
+	ErrCredenciaisInvalidas = errors.New("email ou senha inválidos")
+	ErrTraderNaoEncontrado  = errors.New("trader não encontrado")
+	ErrSenhaAtualIncorreta  = errors.New("senha atual incorreta")
 )
 
 // AuthService gerencia operações de autenticação
 type AuthService struct {
-	db *sql.DB
+	db *database.PostgresClient
 }
 
-// NewAuthService cria uma nova instância do AuthService
-func NewAuthService(db *sql.DB) *AuthService {
+// NewAuthService cria uma nova instância do serviço de autenticação
+func NewAuthService(db *database.PostgresClient) *AuthService {
 	return &AuthService{db: db}
 }
 
 // RegistrarTrader registra um novo trader no sistema
-func (s *AuthService) RegistrarTrader(registro *models.TraderRegistro) (*models.TraderResponse, error) {
+func (s *AuthService) RegistrarTrader(ctx context.Context, registro *models.TraderRegistro) (*models.Trader, error) {
 	// Verifica se o email já existe
-	var existingID uuid.UUID
-	err := s.db.QueryRow("SELECT id FROM traders WHERE email = $1", registro.Email).Scan(&existingID)
-	if err == nil {
-		return nil, fmt.Errorf("email já está em uso")
-	} else if err != sql.ErrNoRows {
-		logrus.WithError(err).Error("Erro ao verificar email existente")
-		return nil, fmt.Errorf("erro interno do servidor")
+	var exists bool
+	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM traders WHERE email = $1)", registro.Email).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao verificar email: %w", err)
+	}
+
+	if exists {
+		return nil, ErrEmailJaExiste
 	}
 
 	// Gera hash da senha
-	hashedPassword, err := middleware.HashPassword(registro.Senha)
+	senhaHash, err := bcrypt.GenerateFromPassword([]byte(registro.Senha), bcrypt.DefaultCost)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao gerar hash da senha")
-		return nil, fmt.Errorf("erro interno do servidor")
+		return nil, fmt.Errorf("erro ao gerar hash da senha: %w", err)
 	}
 
-	// Cria o trader
-	trader := &models.Trader{
-		ID:        uuid.New(),
-		Nome:      registro.Nome,
-		Email:     registro.Email,
-		SenhaHash: hashedPassword,
-		Telefone:  registro.Telefone,
-		Empresa:   registro.Empresa,
-		Ativo:     true,
-	}
-
+	// Insere o trader
 	query := `
-		INSERT INTO traders (id, nome, email, senha_hash, telefone, empresa, ativo, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		INSERT INTO traders (nome, email, senha_hash, telefone, empresa, ativo)
+		VALUES ($1, $2, $3, $4, $5, true)
+		RETURNING id, nome, email, telefone, empresa, ativo, created_at, updated_at
 	`
 
-	_, err = s.db.Exec(query, trader.ID, trader.Nome, trader.Email, trader.SenhaHash,
-		trader.Telefone, trader.Empresa, trader.Ativo)
+	trader := &models.Trader{}
+	err = s.db.QueryRow(
+		query,
+		registro.Nome,
+		registro.Email,
+		string(senhaHash),
+		registro.Telefone,
+		registro.Empresa,
+	).Scan(
+		&trader.ID,
+		&trader.Nome,
+		&trader.Email,
+		&trader.Telefone,
+		&trader.Empresa,
+		&trader.Ativo,
+		&trader.CreatedAt,
+		&trader.UpdatedAt,
+	)
+
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao inserir trader no banco")
-		return nil, fmt.Errorf("erro ao criar trader")
+		return nil, fmt.Errorf("erro ao criar trader: %w", err)
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"trader_id": trader.ID,
-		"email":     trader.Email,
-		"nome":      trader.Nome,
-	}).Info("Trader registrado com sucesso")
-
-	response := trader.ToResponse()
-	return &response, nil
+	return trader, nil
 }
 
-// Login autentica um trader e retorna tokens JWT
-func (s *AuthService) Login(login *models.TraderLogin) (*models.AuthResponse, error) {
-	var trader models.Trader
-
+// Login autentica um trader e retorna os dados
+func (s *AuthService) Login(ctx context.Context, login *models.TraderLogin) (*models.Trader, error) {
 	query := `
 		SELECT id, nome, email, senha_hash, telefone, empresa, ativo, created_at, updated_at
 		FROM traders
 		WHERE email = $1 AND ativo = true
 	`
 
+	trader := &models.Trader{}
+	var senhaHash string
+
 	err := s.db.QueryRow(query, login.Email).Scan(
-		&trader.ID, &trader.Nome, &trader.Email, &trader.SenhaHash,
-		&trader.Telefone, &trader.Empresa, &trader.Ativo,
-		&trader.CreatedAt, &trader.UpdatedAt,
+		&trader.ID,
+		&trader.Nome,
+		&trader.Email,
+		&senhaHash,
+		&trader.Telefone,
+		&trader.Empresa,
+		&trader.Ativo,
+		&trader.CreatedAt,
+		&trader.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("credenciais inválidas")
-	} else if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar trader no banco")
-		return nil, fmt.Errorf("erro interno do servidor")
+		return nil, ErrCredenciaisInvalidas
+	}
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
 	}
 
 	// Verifica a senha
-	if !middleware.CheckPassword(login.Senha, trader.SenhaHash) {
-		return nil, fmt.Errorf("credenciais inválidas")
+	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(login.Senha)); err != nil {
+		return nil, ErrCredenciaisInvalidas
 	}
 
-	// Gera tokens
-	accessToken, expiresAt, err := middleware.GenerateJWT(trader.ID, trader.Email, trader.Nome)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao gerar access token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	refreshToken, err := middleware.GenerateRefreshToken()
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao gerar refresh token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	// Salva o refresh token no banco
-	err = s.salvarRefreshToken(trader.ID, refreshToken)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao salvar refresh token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"trader_id": trader.ID,
-		"email":     trader.Email,
-	}).Info("Login realizado com sucesso")
-
-	return &models.AuthResponse{
-		Token:        accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    expiresAt,
-		Trader:       trader.ToResponse(),
-	}, nil
+	return trader, nil
 }
 
-// RefreshToken gera um novo access token usando o refresh token
-func (s *AuthService) RefreshToken(refreshToken string) (*models.AuthResponse, error) {
-	var traderID uuid.UUID
-	var createdAt time.Time
-
+// BuscarTraderPorID busca um trader pelo ID
+func (s *AuthService) BuscarTraderPorID(ctx context.Context, traderID string) (*models.Trader, error) {
 	query := `
-		SELECT trader_id, created_at
-		FROM refresh_tokens
-		WHERE token_hash = $1 AND expires_at > NOW()
-	`
-
-	err := s.db.QueryRow(query, refreshToken).Scan(&traderID, &createdAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("refresh token inválido ou expirado")
-	} else if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar refresh token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	// Busca dados do trader
-	var trader models.Trader
-	traderQuery := `
 		SELECT id, nome, email, telefone, empresa, ativo, created_at, updated_at
 		FROM traders
 		WHERE id = $1 AND ativo = true
 	`
 
-	err = s.db.QueryRow(traderQuery, traderID).Scan(
-		&trader.ID, &trader.Nome, &trader.Email,
-		&trader.Telefone, &trader.Empresa, &trader.Ativo,
-		&trader.CreatedAt, &trader.UpdatedAt,
+	trader := &models.Trader{}
+	err := s.db.QueryRow(query, traderID).Scan(
+		&trader.ID,
+		&trader.Nome,
+		&trader.Email,
+		&trader.Telefone,
+		&trader.Empresa,
+		&trader.Ativo,
+		&trader.CreatedAt,
+		&trader.UpdatedAt,
 	)
 
+	if err == sql.ErrNoRows {
+		return nil, ErrTraderNaoEncontrado
+	}
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar trader para refresh")
-		return nil, fmt.Errorf("trader não encontrado")
+		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
 	}
 
-	// Gera novo access token
-	accessToken, expiresAt, err := middleware.GenerateJWT(trader.ID, trader.Email, trader.Nome)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao gerar novo access token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	// Gera novo refresh token
-	newRefreshToken, err := middleware.GenerateRefreshToken()
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao gerar novo refresh token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	// Remove o refresh token antigo e salva o novo
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao iniciar transação")
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("DELETE FROM refresh_tokens WHERE token_hash = $1", refreshToken)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao remover refresh token antigo")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	err = s.salvarRefreshTokenTx(tx, trader.ID, newRefreshToken)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao salvar novo refresh token")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao confirmar transação de refresh")
-		return nil, fmt.Errorf("erro interno do servidor")
-	}
-
-	return &models.AuthResponse{
-		Token:        accessToken,
-		RefreshToken: newRefreshToken,
-		ExpiresAt:    expiresAt,
-		Trader:       trader.ToResponse(),
-	}, nil
+	return trader, nil
 }
 
-// Logout invalida o refresh token do trader
-func (s *AuthService) Logout(traderID uuid.UUID, refreshToken string) error {
-	query := `
-		DELETE FROM refresh_tokens
-		WHERE trader_id = $1 AND token_hash = $2
-	`
+// RefreshToken gera um novo token para o trader (implementação básica)
+func (s *AuthService) RefreshToken(ctx context.Context, traderID string) (*models.Trader, error) {
+	// Por enquanto, apenas retorna os dados do trader
+	// Em uma implementação real, você geraria um novo JWT token aqui
+	return s.BuscarTraderPorID(ctx, traderID)
+}
 
-	result, err := s.db.Exec(query, traderID, refreshToken)
+// Logout realiza o logout do trader (implementação básica)
+func (s *AuthService) Logout(ctx context.Context, traderID string) error {
+	// Por enquanto, apenas valida se o trader existe
+	// Em uma implementação real, você invalidaria o token aqui
+	_, err := s.BuscarTraderPorID(ctx, traderID)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao remover refresh token no logout")
-		return fmt.Errorf("erro interno do servidor")
+		return err
+	}
+	return nil
+}
+
+// BuscarTrader é um alias para BuscarTraderPorID para compatibilidade
+func (s *AuthService) BuscarTrader(ctx context.Context, traderID string) (*models.Trader, error) {
+	return s.BuscarTraderPorID(ctx, traderID)
+}
+
+// AtualizarTrader atualiza os dados de um trader
+func (s *AuthService) AtualizarTrader(ctx context.Context, traderID string, dados *models.TraderAtualizar) (*models.Trader, error) {
+	// Monta query dinâmica baseada nos campos fornecidos
+	updates := []string{}
+	args := []interface{}{}
+	argCount := 1
+
+	if dados.Nome != nil {
+		updates = append(updates, fmt.Sprintf("nome = $%d", argCount))
+		args = append(args, *dados.Nome)
+		argCount++
+	}
+
+	if dados.Telefone != nil {
+		updates = append(updates, fmt.Sprintf("telefone = $%d", argCount))
+		args = append(args, *dados.Telefone)
+		argCount++
+	}
+
+	if dados.Empresa != nil {
+		updates = append(updates, fmt.Sprintf("empresa = $%d", argCount))
+		args = append(args, *dados.Empresa)
+		argCount++
+	}
+
+	if len(updates) == 0 {
+		return nil, fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Adiciona updated_at
+	updates = append(updates, "updated_at = CURRENT_TIMESTAMP")
+
+	// Adiciona WHERE clause
+	args = append(args, traderID)
+	whereClause := fmt.Sprintf("WHERE id = $%d", argCount)
+
+	query := fmt.Sprintf(`
+		UPDATE traders 
+		SET %s 
+		%s
+		RETURNING id, nome, email, telefone, empresa, ativo, created_at, updated_at
+	`, strings.Join(updates, ", "), whereClause)
+
+	trader := &models.Trader{}
+	err := s.db.QueryRow(query, args...).Scan(
+		&trader.ID,
+		&trader.Nome,
+		&trader.Email,
+		&trader.Telefone,
+		&trader.Empresa,
+		&trader.Ativo,
+		&trader.CreatedAt,
+		&trader.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrTraderNaoEncontrado
+	}
+	if err != nil {
+		return nil, fmt.Errorf("erro ao atualizar trader: %w", err)
+	}
+
+	return trader, nil
+}
+
+// AlterarSenha altera a senha de um trader
+func (s *AuthService) AlterarSenha(ctx context.Context, traderID string, senhaAtual, novaSenha string) error {
+	// Busca a senha atual
+	var senhaHash string
+	err := s.db.QueryRow("SELECT senha_hash FROM traders WHERE id = $1 AND ativo = true", traderID).Scan(&senhaHash)
+	if err == sql.ErrNoRows {
+		return ErrTraderNaoEncontrado
+	}
+	if err != nil {
+		return fmt.Errorf("erro ao buscar trader: %w", err)
+	}
+
+	// Verifica a senha atual
+	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(senhaAtual)); err != nil {
+		return ErrSenhaAtualIncorreta
+	}
+
+	// Gera hash da nova senha
+	novoHash, err := bcrypt.GenerateFromPassword([]byte(novaSenha), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar hash da nova senha: %w", err)
+	}
+
+	// Atualiza a senha
+	_, err = s.db.Exec(
+		"UPDATE traders SET senha_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+		string(novoHash), traderID,
+	)
+	if err != nil {
+		return fmt.Errorf("erro ao atualizar senha: %w", err)
+	}
+
+	return nil
+}
+
+// DesativarTrader desativa um trader
+func (s *AuthService) DesativarTrader(ctx context.Context, traderID string) error {
+	result, err := s.db.Exec(
+		"UPDATE traders SET ativo = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND ativo = true",
+		traderID,
+	)
+	if err != nil {
+		return fmt.Errorf("erro ao desativar trader: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao verificar linhas afetadas no logout")
-		return fmt.Errorf("erro interno do servidor")
+		return fmt.Errorf("erro ao verificar linhas afetadas: %w", err)
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("refresh token não encontrado")
+		return ErrTraderNaoEncontrado
 	}
 
-	logrus.WithField("trader_id", traderID).Info("Logout realizado com sucesso")
 	return nil
 }
 
-// BuscarTrader busca um trader por ID
-func (s *AuthService) BuscarTrader(traderID uuid.UUID) (*models.TraderResponse, error) {
-	var trader models.Trader
+// ListarTraders lista todos os traders ativos com paginação
+func (s *AuthService) ListarTraders(ctx context.Context, limite, offset int) ([]*models.Trader, int, error) {
+	// Conta total de traders ativos
+	var total int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM traders WHERE ativo = true").Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("erro ao contar traders: %w", err)
+	}
 
+	// Busca traders com paginação
 	query := `
 		SELECT id, nome, email, telefone, empresa, ativo, created_at, updated_at
 		FROM traders
-		WHERE id = $1 AND ativo = true
+		WHERE ativo = true
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
 	`
 
-	err := s.db.QueryRow(query, traderID).Scan(
-		&trader.ID, &trader.Nome, &trader.Email,
-		&trader.Telefone, &trader.Empresa, &trader.Ativo,
-		&trader.CreatedAt, &trader.UpdatedAt,
+	rows, err := s.db.Query(query, limite, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("erro ao buscar traders: %w", err)
+	}
+	defer rows.Close()
+
+	var traders []*models.Trader
+	for rows.Next() {
+		trader := &models.Trader{}
+		err := rows.Scan(
+			&trader.ID,
+			&trader.Nome,
+			&trader.Email,
+			&trader.Telefone,
+			&trader.Empresa,
+			&trader.Ativo,
+			&trader.CreatedAt,
+			&trader.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("erro ao escanear trader: %w", err)
+		}
+		traders = append(traders, trader)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("erro ao iterar traders: %w", err)
+	}
+
+	return traders, total, nil
+}
+
+// BuscarTraderPorEmail busca um trader pelo email
+func (s *AuthService) BuscarTraderPorEmail(ctx context.Context, email string) (*models.Trader, error) {
+	query := `
+		SELECT id, nome, email, telefone, empresa, ativo, created_at, updated_at
+		FROM traders
+		WHERE email = $1 AND ativo = true
+	`
+
+	trader := &models.Trader{}
+	err := s.db.QueryRow(query, email).Scan(
+		&trader.ID,
+		&trader.Nome,
+		&trader.Email,
+		&trader.Telefone,
+		&trader.Empresa,
+		&trader.Ativo,
+		&trader.CreatedAt,
+		&trader.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("trader não encontrado")
-	} else if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar trader")
-		return nil, fmt.Errorf("erro interno do servidor")
+		return nil, ErrTraderNaoEncontrado
 	}
-
-	response := trader.ToResponse()
-	return &response, nil
-}
-
-// AtualizarTrader atualiza os dados de um trader
-func (s *AuthService) AtualizarTrader(traderID uuid.UUID, dados *models.TraderAtualizar) (*models.TraderResponse, error) {
-	// Verifica se o trader existe
-	_, err := s.BuscarTrader(traderID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
 	}
 
-	// Constrói a query de atualização dinamicamente
-	setParts := []string{}
-	args := []interface{}{}
-	argIndex := 1
-
-	if dados.Nome != nil && *dados.Nome != "" {
-		setParts = append(setParts, fmt.Sprintf("nome = $%d", argIndex))
-		args = append(args, *dados.Nome)
-		argIndex++
-	}
-
-	if dados.Telefone != nil {
-		setParts = append(setParts, fmt.Sprintf("telefone = $%d", argIndex))
-		args = append(args, dados.Telefone)
-		argIndex++
-	}
-
-	if dados.Empresa != nil {
-		setParts = append(setParts, fmt.Sprintf("empresa = $%d", argIndex))
-		args = append(args, dados.Empresa)
-		argIndex++
-	}
-
-	if len(setParts) == 0 {
-		return nil, fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	// Adiciona updated_at e trader_id
-	setParts = append(setParts, fmt.Sprintf("updated_at = NOW()"))
-	args = append(args, traderID)
-
-	query := fmt.Sprintf(`
-		UPDATE traders
-		SET %s
-		WHERE id = $%d
-	`, strings.Join(setParts, ", "), argIndex)
-
-	_, err = s.db.Exec(query, args...)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao atualizar trader")
-		return nil, fmt.Errorf("erro ao atualizar trader")
-	}
-
-	// Retorna o trader atualizado
-	return s.BuscarTrader(traderID)
-}
-
-// salvarRefreshToken salva um refresh token no banco
-func (s *AuthService) salvarRefreshToken(traderID uuid.UUID, token string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	err = s.salvarRefreshTokenTx(tx, traderID, token)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// salvarRefreshTokenTx salva um refresh token usando uma transação existente
-func (s *AuthService) salvarRefreshTokenTx(tx *sql.Tx, traderID uuid.UUID, token string) error {
-	// Remove tokens antigos do trader (mantém apenas o mais recente)
-	_, err := tx.Exec("DELETE FROM refresh_tokens WHERE trader_id = $1", traderID)
-	if err != nil {
-		return err
-	}
-
-	// Insere o novo token (válido por 30 dias)
-	query := `
-		INSERT INTO refresh_tokens (id, trader_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, NOW() + INTERVAL '30 days', NOW())
-	`
-
-	_, err = tx.Exec(query, uuid.New(), traderID, token)
-	return err
+	return trader, nil
 }

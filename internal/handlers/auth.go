@@ -39,7 +39,7 @@ func (h *AuthHandler) Registrar(c *gin.Context) {
 		return
 	}
 
-	authResponse, err := h.authService.RegistrarTrader(&req)
+	authResponse, err := h.authService.RegistrarTrader(c.Request.Context(), &req)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao registrar trader")
 		if err.Error() == "email já está em uso" {
@@ -72,7 +72,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	authResponse, err := h.authService.Login(&req)
+	authResponse, err := h.authService.Login(c.Request.Context(), &req)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao fazer login")
 		if err.Error() == "credenciais inválidas" {
@@ -111,7 +111,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	authResponse, err := h.authService.RefreshToken(refreshToken)
+	authResponse, err := h.authService.RefreshToken(c.Request.Context(), refreshToken)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao renovar token")
 		if err.Error() == "refresh token inválido ou expirado" {
@@ -153,7 +153,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	err = h.authService.Logout(traderID, request.RefreshToken)
+	err = h.authService.Logout(c.Request.Context(), traderID.String())
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao fazer logout")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
@@ -179,7 +179,7 @@ func (h *AuthHandler) Perfil(c *gin.Context) {
 		return
 	}
 
-	traderResponse, err := h.authService.BuscarTrader(traderID)
+	traderResponse, err := h.authService.BuscarTrader(c.Request.Context(), traderID.String())
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao buscar perfil do trader")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
@@ -214,7 +214,7 @@ func (h *AuthHandler) AtualizarPerfil(c *gin.Context) {
 		return
 	}
 
-	traderResponse, err := h.authService.AtualizarTrader(traderID, &dados)
+	traderResponse, err := h.authService.AtualizarTrader(c.Request.Context(), traderID.String(), &dados)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao atualizar perfil do trader")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})

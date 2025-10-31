@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -17,7 +18,7 @@ import (
 
 // @title Mobgran Importer API
 // @version 1.0
-// @description API para importação de ofertas do Mobgran para Supabase - HOT RELOAD FUNCIONANDO! 🔥
+// @description API para importação de ofertas do Mobgran com PostgreSQL - HOT RELOAD FUNCIONANDO! 🔥
 // @termsOfService http://swagger.io/terms/
 
 // @contact.name API Support
@@ -41,28 +42,28 @@ func main() {
 	// Configurar logger
 	logger := config.SetupLogger(cfg.LogLevel)
 
-	// Inicializar cliente PostgreSQL
-	dbClient, err := database.NewClient(
-		cfg.DBHost, cfg.DBPort, cfg.DBName, 
-		cfg.DBUser, cfg.DBPassword, cfg.DBSSLMode, 
-		logger,
-	)
+	// Inicializar cliente PostgreSQL com migrations automáticas
+	connString := fmt.Sprintf("host=%s port=%s dbname=%s user=%s password=%s sslmode=%s",
+		cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.DBUser, cfg.DBPassword, cfg.DBSSLMode)
+	
+	dbClient, err := database.NewPostgresClient(connString)
 	if err != nil {
 		log.Fatalf("Erro ao inicializar cliente PostgreSQL: %v", err)
 	}
 	defer dbClient.Close()
 
-	// Inicializar serviço de importação
-	importerService := services.NewMobgranImporter(dbClient, logger)
+	// Executar migrations automáticas
+	log.Println("🔄 Chamando RunMigrations()...")
+	if err := dbClient.RunMigrations(); err != nil {
+		log.Fatalf("Erro ao executar migrations: %v", err)
+	}
+	log.Println("✅ RunMigrations() concluído com sucesso!")
 
 	// Inicializar serviços de autenticação
-	authService := services.NewAuthService(dbClient.GetDB())
-	produtosService := services.NewProdutosService(dbClient.GetDB())
+	authService := services.NewAuthService(dbClient)
 
 	// Inicializar handlers
-	importerHandler := handlers.NewImporterHandler(importerService, logger)
 	authHandler := handlers.NewAuthHandler(authService)
-	produtosHandler := handlers.NewProdutosHandler(produtosService)
 
 	// Configurar Gin
 	if cfg.LogLevel != "debug" {
@@ -79,22 +80,30 @@ func main() {
 	router.Use(middleware.RecoveryMiddleware())
 
 	// Rotas de saúde
-	router.GET("/health", importerHandler.HealthCheck)
+	router.GET("/health", func(c *gin.Context) {
+		// Verificar saúde do banco de dados
+		if err := dbClient.HealthCheck(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"error":  "database connection failed",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "healthy",
+			"database": "connected",
+			"version":  "1.0.0",
+		})
+	})
+
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Mobgran Importer API - Go 🔥 HOT RELOAD ATIVO!",
+			"message": "Mobgran Importer API - PostgreSQL 🔥 HOT RELOAD ATIVO!",
 			"version": "1.0.0",
 			"status":  "running",
 		})
 	})
-
-	// Rotas da API
-	api := router.Group("/api")
-	{
-		api.POST("/importar", importerHandler.ImportarOferta)
-		api.POST("/validar-url", importerHandler.ValidarURL)
-		api.POST("/extrair-uuid", importerHandler.ExtrairUUID)
-	}
 
 	// Rotas de autenticação
 	auth := router.Group("/auth")
@@ -107,38 +116,12 @@ func main() {
 		auth.PUT("/perfil", middleware.AuthMiddleware(), authHandler.AtualizarPerfil)
 	}
 
-	// Rotas de produtos (protegidas por autenticação)
-	produtos := router.Group("/produtos")
-	produtos.Use(middleware.AuthMiddleware())
-	{
-		produtos.GET("/cavaletes", produtosHandler.ListarCavaletesDisponiveis)
-		produtos.POST("/aprovar", produtosHandler.AprovarProduto)
-		produtos.GET("/aprovados", produtosHandler.ListarProdutosAprovados)
-		produtos.PUT("/:id", produtosHandler.AtualizarProduto)
-		produtos.GET("/:id", produtosHandler.BuscarProduto)
-		produtos.DELETE("/:id", produtosHandler.RemoverProduto)
-		produtos.GET("/estatisticas", produtosHandler.ObterEstatisticas)
-	}
-
-	// Rotas públicas de vitrine
-	vitrine := router.Group("/vitrine")
-	{
-		vitrine.GET("/publica", produtosHandler.ListarVitrinePublica)
-	}
-
-	// Rotas administrativas (protegidas por autenticação)
-	admin := router.Group("/admin")
-	admin.Use(middleware.AuthMiddleware())
-	{
-		admin.DELETE("/limpar-dados", produtosHandler.LimparTodosRegistros)
-	}
-
 	// Rota do Swagger
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Iniciar servidor
 	port := cfg.Port
-	logger.WithField("port", port).Info("Iniciando servidor")
+	logger.WithField("port", port).Info("Iniciando servidor PostgreSQL")
 
 	if err := router.Run(":" + port); err != nil {
 		logger.WithError(err).Fatal("Erro ao iniciar servidor")

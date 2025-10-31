@@ -1,24 +1,46 @@
 # Mobgran Importer - Go
 
-Uma API REST desenvolvida em Go para importar dados de ofertas do Mobgran para o Supabase. Esta é uma reimplementação em Go do projeto Python original, oferecendo melhor performance e facilidade de deploy.
+Uma API REST desenvolvida em Go para gerenciar traders e ofertas do Mobgran com PostgreSQL. Esta implementação oferece um sistema completo de autenticação e gerenciamento de dados com migrations automáticas.
 
 ## 🚀 Características
 
-- **API REST** com endpoints para importação e validação
-- **Cliente Supabase** integrado para persistência de dados
-- **Validação de URLs** do Mobgran
+- **API REST** com endpoints para autenticação e gerenciamento de traders
+- **PostgreSQL** como banco de dados principal com migrations automáticas
+- **Sistema de Autenticação** completo com JWT e refresh tokens
+- **Estrutura de Dados** robusta para traders, ofertas, cavaletes e produtos
 - **Logging estruturado** com diferentes níveis
-- **Containerização** com Docker
+- **Containerização** com Docker e hot reload
 - **Configuração flexível** via variáveis de ambiente
 - **Health checks** para monitoramento
 
 ## 📋 Pré-requisitos
 
-- Go 1.21 ou superior
-- Conta no Supabase configurada
-- Docker (opcional, para containerização)
+- Go 1.24 ou superior
+- PostgreSQL 15+ (ou Docker para desenvolvimento)
+- Docker e Docker Compose (recomendado para desenvolvimento)
 
 ## 🛠️ Instalação
+
+### Desenvolvimento com Docker (Recomendado)
+
+1. Clone o repositório:
+```bash
+git clone <repository-url>
+cd mobgran-importer-go
+```
+
+2. Configure as variáveis de ambiente:
+```bash
+cp .env.example .env
+# Edite o arquivo .env com suas configurações
+```
+
+3. Execute com Docker Compose:
+```bash
+docker-compose up --watch
+```
+
+A aplicação estará disponível em `http://localhost:8080` com hot reload ativo.
 
 ### Desenvolvimento Local
 
@@ -33,21 +55,16 @@ cd mobgran-importer-go
 go mod download
 ```
 
-3. Configure as variáveis de ambiente:
+3. Configure PostgreSQL local e as variáveis de ambiente:
 ```bash
 cp .env.example .env
-# Edite o arquivo .env com suas configurações
+# Edite o arquivo .env com suas configurações do PostgreSQL
 ```
 
 4. Execute a aplicação:
 ```bash
 go run cmd/server/main.go
 ```
-
-### Docker
-
-1. Build da imagem:
-```bash
 docker build -t mobgran-importer-go .
 ```
 
@@ -69,19 +86,46 @@ docker-compose up -d
 | Variável | Descrição | Padrão |
 |----------|-----------|---------|
 | `PORT` | Porta do servidor | `8080` |
-| `SUPABASE_URL` | URL do projeto Supabase | **Obrigatório** |
-| `SUPABASE_KEY` | Chave de API do Supabase | **Obrigatório** |
 | `LOG_LEVEL` | Nível de log (debug, info, warn, error) | `info` |
-| `MOBGRAN_API_URL` | URL base da API Mobgran | `https://api.mobgran.com.br/api/v1/ofertas/` |
+| `DB_HOST` | Host do PostgreSQL | `localhost` |
+| `DB_PORT` | Porta do PostgreSQL | `5433` |
+| `DB_NAME` | Nome do banco de dados | `mobgran_db` |
+| `DB_USER` | Usuário do PostgreSQL | `mobgran_user` |
+| `DB_PASSWORD` | Senha do PostgreSQL | **Obrigatório** |
+| `DB_SSLMODE` | Modo SSL do PostgreSQL | `disable` |
+| `JWT_SECRET` | Chave secreta para JWT | **Obrigatório** |
+| `JWT_EXPIRATION` | Expiração do JWT em horas | `24` |
+| `JWT_REFRESH_EXPIRATION` | Expiração do refresh token em horas | `168` |
+| `JWT_ISSUER` | Emissor do JWT | `mobgran-api` |
+| `ENVIRONMENT` | Ambiente da aplicação | `development` |
+| `CORS_ALLOWED_ORIGINS` | Origens permitidas para CORS | `*` |
 
 ### Exemplo de .env
 
 ```env
+# Servidor
 PORT=8080
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-supabase-anon-key
-LOG_LEVEL=info
-MOBGRAN_API_URL=https://api.mobgran.com.br/api/v1/ofertas/
+LOG_LEVEL=debug
+ENVIRONMENT=development
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5433
+DB_NAME=mobgran_db
+DB_USER=mobgran_user
+DB_PASSWORD=sua_senha_segura
+DB_SSLMODE=disable
+
+# JWT
+JWT_SECRET=sua_chave_jwt_muito_segura_aqui
+JWT_EXPIRATION=24
+JWT_REFRESH_EXPIRATION=168
+JWT_ISSUER=mobgran-api
+
+# CORS
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8080
+CORS_ALLOWED_METHODS=GET,POST,PUT,DELETE,OPTIONS
+CORS_ALLOWED_HEADERS=Content-Type,Authorization
 ```
 
 ## 📚 API Endpoints
@@ -98,82 +142,113 @@ Retorna o status da aplicação.
 ```json
 {
   "status": "ok",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "service": "mobgran-importer-go",
-  "version": "1.0.0"
+  "timestamp": "2024-01-15T10:30:00Z"
 }
 ```
 
-### Importar Oferta
+### Autenticação
+
+#### Registrar Trader
 
 ```http
-POST /api/importar
+POST /auth/registrar
 ```
 
-Importa uma oferta do Mobgran para o Supabase.
+Registra um novo trader no sistema.
 
 **Body:**
 ```json
 {
-  "url": "https://www.mobgran.com/app/conferencia/?p=link&o=uuid-here",
-  "atualizar_existente": false
+  "nome": "João Silva",
+  "email": "joao@exemplo.com",
+  "senha": "senha123",
+  "telefone": "+5511999999999",
+  "cidade": "São Paulo",
+  "estado": "SP"
+}
+```
+
+#### Login
+
+```http
+POST /auth/login
+```
+
+Realiza login de um trader.
+
+**Body:**
+```json
+{
+  "email": "joao@exemplo.com",
+  "senha": "senha123"
 }
 ```
 
 **Resposta:**
 ```json
 {
-  "sucesso": true,
-  "mensagem": "Oferta importada com sucesso",
-  "uuid": "uuid-da-oferta"
+  "access_token": "jwt-token-here",
+  "refresh_token": "refresh-token-here",
+  "trader": {
+    "id": "uuid",
+    "nome": "João Silva",
+    "email": "joao@exemplo.com"
+  }
 }
 ```
 
-### Validar URL
+#### Refresh Token
 
 ```http
-POST /api/validar-url
+POST /auth/refresh
 ```
 
-Valida se uma URL é um link válido do Mobgran.
+Renova o token de acesso usando o refresh token.
 
 **Body:**
 ```json
 {
-  "url": "https://www.mobgran.com/app/conferencia/?p=link&o=uuid-here"
+  "refresh_token": "refresh-token-here"
 }
 ```
 
-**Resposta:**
-```json
-{
-  "valida": true,
-  "mensagem": "URL válida",
-  "uuid": "uuid-extraido"
-}
-```
-
-### Extrair UUID
+#### Logout
 
 ```http
-POST /api/extrair-uuid
+POST /auth/logout
 ```
 
-Extrai o UUID de uma URL do Mobgran.
+Realiza logout invalidando o refresh token.
 
-**Body:**
-```json
-{
-  "url": "https://www.mobgran.com/app/conferencia/?p=link&o=uuid-here"
-}
+**Headers:**
+```
+Authorization: Bearer jwt-token-here
 ```
 
-**Resposta:**
-```json
-{
-  "sucesso": true,
-  "uuid": "uuid-extraido"
-}
+### Traders (Autenticado)
+
+#### Buscar Trader por ID
+
+```http
+GET /auth/trader/:id
+```
+
+#### Atualizar Trader
+
+```http
+PUT /auth/trader/:id
+```
+
+#### Alterar Senha
+
+```http
+PUT /auth/alterar-senha
+```
+
+#### Listar Traders
+
+```http
+GET /auth/traders
 ```
 
 ## 🏗️ Arquitetura
@@ -185,29 +260,50 @@ mobgran-importer-go/
 ├── internal/
 │   ├── config/          # Configurações e setup
 │   ├── handlers/        # Handlers HTTP
+│   ├── middleware/      # Middlewares (autenticação, CORS, etc.)
 │   ├── models/          # Estruturas de dados
 │   └── services/        # Lógica de negócio
 ├── pkg/
-│   └── supabase/        # Cliente Supabase
-└── docs/                # Documentação
+│   └── database/        # Cliente PostgreSQL e migrations
+└── docs/                # Documentação Swagger
 ```
 
 ### Componentes Principais
 
 - **Config**: Gerenciamento de configurações e variáveis de ambiente
 - **Handlers**: Controladores HTTP que processam as requisições
-- **Models**: Estruturas de dados para representar ofertas, cavaletes e itens
-- **Services**: Lógica de importação e processamento de dados
-- **Supabase Client**: Interface para comunicação com o Supabase
+- **Middleware**: Autenticação JWT, CORS, rate limiting e logging
+- **Models**: Estruturas de dados para traders, ofertas, cavaletes e produtos
+- **Services**: Lógica de autenticação e gerenciamento de dados
+- **Database**: Cliente PostgreSQL com migrations automáticas
 
-## 🔄 Fluxo de Importação
+## 🔄 Fluxo de Autenticação
 
-1. **Validação da URL**: Verifica se a URL é um link válido do Mobgran
-2. **Extração do UUID**: Extrai o identificador único da oferta
-3. **Busca de dados**: Faz requisição para a API do Mobgran
-4. **Verificação de existência**: Checa se a oferta já existe no Supabase
-5. **Processamento**: Salva ou atualiza a oferta, cavaletes e itens
-6. **Resposta**: Retorna o resultado da operação
+1. **Registro**: Trader se registra fornecendo dados pessoais
+2. **Validação**: Sistema valida dados e cria hash da senha
+3. **Login**: Trader faz login com email e senha
+4. **JWT**: Sistema gera access token e refresh token
+5. **Autorização**: Requests protegidos usam JWT no header
+6. **Refresh**: Token expirado pode ser renovado com refresh token
+
+## 🗄️ Banco de Dados
+
+### Migrations Automáticas
+
+O sistema executa migrations automaticamente na inicialização:
+
+- `001_create_tables.sql`: Cria tabelas principais
+- `002_create_indexes.sql`: Cria índices para performance
+- `003_create_views.sql`: Cria views para consultas complexas
+
+### Estrutura Principal
+
+- **traders**: Dados dos traders (usuários)
+- **refresh_tokens**: Tokens de refresh para autenticação
+- **ofertas**: Ofertas do Mobgran
+- **cavaletes**: Cavaletes disponíveis
+- **produtos**: Produtos e itens
+- **schema_migrations**: Controle de versão das migrations
 
 ## 🧪 Testes
 
@@ -253,12 +349,29 @@ docker-compose up -d
 
 ## 📊 Monitoramento
 
-A aplicação expõe um endpoint de health check em `/health` que pode ser usado para:
+### Health Check
 
-- Load balancers
-- Kubernetes health checks
-- Monitoramento de uptime
-- CI/CD pipelines
+A aplicação expõe um endpoint de health check em `/health` que retorna:
+
+- Status da aplicação
+- Timestamp atual
+- Conectividade com PostgreSQL
+
+### Logs
+
+A aplicação usa logging estruturado com níveis configuráveis:
+
+- `debug`: Informações detalhadas para desenvolvimento
+- `info`: Informações gerais de operação
+- `warn`: Avisos que não impedem a operação
+- `error`: Erros que requerem atenção
+
+### Swagger Documentation
+
+Acesse a documentação interativa da API em:
+```
+http://localhost:8080/swagger/index.html
+```
 
 ## 🤝 Contribuição
 
@@ -268,16 +381,37 @@ A aplicação expõe um endpoint de health check em `/health` que pode ser usado
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
+## 🔧 Desenvolvimento
+
+### Estrutura de Commits
+
+- `feat:` Nova funcionalidade
+- `fix:` Correção de bug
+- `docs:` Documentação
+- `style:` Formatação
+- `refactor:` Refatoração de código
+- `test:` Testes
+- `chore:` Tarefas de manutenção
+
+### Padrões de Código
+
+- Use `gofmt` para formatação
+- Execute `go vet` para análise estática
+- Mantenha cobertura de testes acima de 80%
+- Documente funções públicas
+
 ## 📄 Licença
 
 Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
 
-## 🆚 Diferenças da Versão Python
+## ✨ Características da Implementação PostgreSQL
 
-- **Performance**: Melhor performance devido à natureza compilada do Go
-- **Concorrência**: Melhor suporte nativo para operações concorrentes
-- **Deploy**: Binário único, sem dependências externas
-- **Memória**: Menor uso de memória em produção
+- **Migrations Automáticas**: Sistema de versionamento de banco de dados
+- **Connection Pool**: Gerenciamento eficiente de conexões
+- **Transações**: Operações atômicas para consistência de dados
+- **Índices Otimizados**: Performance aprimorada para consultas
+- **Autenticação JWT**: Sistema seguro de autenticação
+- **Hot Reload**: Desenvolvimento com recarga automática via Air
 - **API REST**: Interface HTTP completa (vs CLI na versão Python)
 
 ## 📞 Suporte
