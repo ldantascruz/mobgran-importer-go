@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,13 +10,6 @@ import (
 	
 	"mobgran-importer-go/internal/models"
 	"mobgran-importer-go/pkg/database"
-)
-
-var (
-	ErrEmailJaExiste       = errors.New("email já cadastrado")
-	ErrCredenciaisInvalidas = errors.New("email ou senha inválidos")
-	ErrTraderNaoEncontrado  = errors.New("trader não encontrado")
-	ErrSenhaAtualIncorreta  = errors.New("senha atual incorreta")
 )
 
 // AuthService gerencia operações de autenticação
@@ -36,17 +28,17 @@ func (s *AuthService) RegistrarTrader(ctx context.Context, registro *models.Trad
 	var exists bool
 	err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM traders WHERE email = $1)", registro.Email).Scan(&exists)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao verificar email: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	if exists {
-		return nil, ErrEmailJaExiste
+		return nil, models.NewConflictError("Email já está em uso")
 	}
 
 	// Gera hash da senha
 	senhaHash, err := bcrypt.GenerateFromPassword([]byte(registro.Senha), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao gerar hash da senha: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	// Insere o trader
@@ -76,7 +68,10 @@ func (s *AuthService) RegistrarTrader(ctx context.Context, registro *models.Trad
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("erro ao criar trader: %w", err)
+		if strings.Contains(err.Error(), "duplicate key") {
+			return nil, models.NewConflictError("Email já está em uso")
+		}
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	return trader, nil
@@ -106,15 +101,15 @@ func (s *AuthService) Login(ctx context.Context, login *models.TraderLogin) (*mo
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrCredenciaisInvalidas
+		return nil, models.NewAuthenticationError("Email ou senha incorretos")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	// Verifica a senha
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(login.Senha)); err != nil {
-		return nil, ErrCredenciaisInvalidas
+		return nil, models.NewAuthenticationError("Email ou senha incorretos")
 	}
 
 	return trader, nil
@@ -141,10 +136,10 @@ func (s *AuthService) BuscarTraderPorID(ctx context.Context, traderID string) (*
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrTraderNaoEncontrado
+		return nil, models.NewNotFoundError("Trader não encontrado")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	return trader, nil
@@ -199,7 +194,7 @@ func (s *AuthService) AtualizarTrader(ctx context.Context, traderID string, dado
 	}
 
 	if len(updates) == 0 {
-		return nil, fmt.Errorf("nenhum campo para atualizar")
+		return nil, models.NewBadRequestError("Nenhum campo para atualizar", "")
 	}
 
 	// Adiciona updated_at
@@ -229,10 +224,10 @@ func (s *AuthService) AtualizarTrader(ctx context.Context, traderID string, dado
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrTraderNaoEncontrado
+		return nil, models.NewNotFoundError("Trader não encontrado")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("erro ao atualizar trader: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	return trader, nil
@@ -244,21 +239,21 @@ func (s *AuthService) AlterarSenha(ctx context.Context, traderID string, senhaAt
 	var senhaHash string
 	err := s.db.QueryRow("SELECT senha_hash FROM traders WHERE id = $1 AND ativo = true", traderID).Scan(&senhaHash)
 	if err == sql.ErrNoRows {
-		return ErrTraderNaoEncontrado
+		return models.NewNotFoundError("Trader não encontrado")
 	}
 	if err != nil {
-		return fmt.Errorf("erro ao buscar trader: %w", err)
+		return models.NewInternalError("Erro interno do servidor")
 	}
 
 	// Verifica a senha atual
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(senhaAtual)); err != nil {
-		return ErrSenhaAtualIncorreta
+		return models.NewAuthenticationError("Senha atual incorreta")
 	}
 
 	// Gera hash da nova senha
 	novoHash, err := bcrypt.GenerateFromPassword([]byte(novaSenha), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("erro ao gerar hash da nova senha: %w", err)
+		return models.NewInternalError("Erro interno do servidor")
 	}
 
 	// Atualiza a senha
@@ -267,7 +262,7 @@ func (s *AuthService) AlterarSenha(ctx context.Context, traderID string, senhaAt
 		string(novoHash), traderID,
 	)
 	if err != nil {
-		return fmt.Errorf("erro ao atualizar senha: %w", err)
+		return models.NewInternalError("Erro interno do servidor")
 	}
 
 	return nil
@@ -280,16 +275,16 @@ func (s *AuthService) DesativarTrader(ctx context.Context, traderID string) erro
 		traderID,
 	)
 	if err != nil {
-		return fmt.Errorf("erro ao desativar trader: %w", err)
+		return models.NewInternalError("Erro interno do servidor")
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("erro ao verificar linhas afetadas: %w", err)
+		return models.NewInternalError("Erro interno do servidor")
 	}
 
 	if rowsAffected == 0 {
-		return ErrTraderNaoEncontrado
+		return models.NewNotFoundError("Trader não encontrado")
 	}
 
 	return nil
@@ -301,7 +296,7 @@ func (s *AuthService) ListarTraders(ctx context.Context, limite, offset int) ([]
 	var total int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM traders WHERE ativo = true").Scan(&total)
 	if err != nil {
-		return nil, 0, fmt.Errorf("erro ao contar traders: %w", err)
+		return nil, 0, models.NewInternalError("Erro interno do servidor")
 	}
 
 	// Busca traders com paginação
@@ -315,7 +310,7 @@ func (s *AuthService) ListarTraders(ctx context.Context, limite, offset int) ([]
 
 	rows, err := s.db.Query(query, limite, offset)
 	if err != nil {
-		return nil, 0, fmt.Errorf("erro ao buscar traders: %w", err)
+		return nil, 0, models.NewInternalError("Erro interno do servidor")
 	}
 	defer rows.Close()
 
@@ -333,13 +328,13 @@ func (s *AuthService) ListarTraders(ctx context.Context, limite, offset int) ([]
 			&trader.UpdatedAt,
 		)
 		if err != nil {
-			return nil, 0, fmt.Errorf("erro ao escanear trader: %w", err)
+			return nil, 0, models.NewInternalError("Erro interno do servidor")
 		}
 		traders = append(traders, trader)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("erro ao iterar traders: %w", err)
+		return nil, 0, models.NewInternalError("Erro interno do servidor")
 	}
 
 	return traders, total, nil
@@ -366,10 +361,10 @@ func (s *AuthService) BuscarTraderPorEmail(ctx context.Context, email string) (*
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, ErrTraderNaoEncontrado
+		return nil, models.NewNotFoundError("Trader não encontrado")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar trader: %w", err)
+		return nil, models.NewInternalError("Erro interno do servidor")
 	}
 
 	return trader, nil

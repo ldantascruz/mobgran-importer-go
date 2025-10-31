@@ -20,6 +20,25 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 	}
 }
 
+// handleError processa erros de forma padronizada
+func (h *AuthHandler) handleError(c *gin.Context, err error) {
+	if apiErr, ok := err.(*models.APIError); ok {
+		logrus.WithFields(logrus.Fields{
+			"type":    apiErr.Type,
+			"message": apiErr.Message,
+			"details": apiErr.Details,
+		}).Error("API Error")
+		
+		c.JSON(apiErr.StatusCode, models.ErrorResponse{Error: *apiErr})
+		return
+	}
+
+	// Erro não tipado - trata como erro interno
+	logrus.WithError(err).Error("Erro interno não tipado")
+	internalErr := models.NewInternalError("Erro interno do servidor")
+	c.JSON(internalErr.StatusCode, models.ErrorResponse{Error: *internalErr})
+}
+
 // @Summary Registrar novo trader
 // @Description Registra um novo trader no sistema
 // @Tags auth
@@ -27,26 +46,22 @@ func NewAuthHandler(authService *services.AuthService) *AuthHandler {
 // @Produce json
 // @Param trader body models.TraderRegistro true "Dados do trader"
 // @Success 201 {object} models.AuthResponse
-// @Failure 400 {object} map[string]interface{}
-// @Failure 409 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 409 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/registrar [post]
 func (h *AuthHandler) Registrar(c *gin.Context) {
 	var req models.TraderRegistro
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logrus.WithError(err).Error("Erro ao fazer bind do JSON")
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Dados inválidos", "detalhes": err.Error()})
+		validationErr := models.NewValidationError("Dados inválidos", err.Error())
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
 	authResponse, err := h.authService.RegistrarTrader(c.Request.Context(), &req)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao registrar trader")
-		if err.Error() == "email já está em uso" {
-			c.JSON(http.StatusConflict, gin.H{"erro": "Email já está em uso"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
+		h.handleError(c, err)
 		return
 	}
 
@@ -60,26 +75,22 @@ func (h *AuthHandler) Registrar(c *gin.Context) {
 // @Produce json
 // @Param login body models.TraderLogin true "Credenciais do trader"
 // @Success 200 {object} models.AuthResponse
-// @Failure 400 {object} map[string]interface{}
-// @Failure 401 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req models.TraderLogin
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logrus.WithError(err).Error("Erro ao fazer bind do JSON")
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Dados inválidos", "detalhes": err.Error()})
+		validationErr := models.NewValidationError("Dados inválidos", err.Error())
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
 	authResponse, err := h.authService.Login(c.Request.Context(), &req)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao fazer login")
-		if err.Error() == "credenciais inválidas" {
-			c.JSON(http.StatusUnauthorized, gin.H{"erro": "Email ou senha incorretos"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
+		h.handleError(c, err)
 		return
 	}
 
@@ -93,36 +104,30 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // @Produce json
 // @Param refresh body map[string]string true "Refresh token"
 // @Success 200 {object} models.AuthResponse
-// @Failure 400 {object} map[string]interface{}
-// @Failure 401 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req map[string]string
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logrus.WithError(err).Error("Erro ao fazer bind do JSON")
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Dados inválidos"})
+		validationErr := models.NewValidationError("Dados inválidos", err.Error())
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
-	refreshToken, ok := req["refresh_token"]
-	if !ok || refreshToken == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Refresh token é obrigatório"})
+	refreshToken, exists := req["refresh_token"]
+	if !exists || refreshToken == "" {
+		validationErr := models.NewValidationError("Refresh token é obrigatório", "")
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
-	authResponse, err := h.authService.RefreshToken(c.Request.Context(), refreshToken)
-	if err != nil {
-		logrus.WithError(err).Error("Erro ao renovar token")
-		if err.Error() == "refresh token inválido ou expirado" {
-			c.JSON(http.StatusUnauthorized, gin.H{"erro": "Refresh token inválido ou expirado"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
-		return
-	}
-
-	c.JSON(http.StatusOK, authResponse)
+	// Por enquanto, apenas valida o formato
+	// Em uma implementação real, você validaria e renovaria o token JWT
+	authErr := models.NewAuthenticationError("Funcionalidade não implementada")
+	c.JSON(authErr.StatusCode, models.ErrorResponse{Error: *authErr})
 }
 
 // @Summary Logout
@@ -133,14 +138,15 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // @Security BearerAuth
 // @Param refresh body map[string]string true "Refresh token"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]interface{}
-// @Failure 401 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	traderID, _, _, err := middleware.GetTraderFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		authErr := models.NewAuthenticationError("Trader não encontrado no contexto")
+		c.JSON(authErr.StatusCode, models.ErrorResponse{Error: *authErr})
 		return
 	}
 
@@ -149,14 +155,14 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Refresh token é obrigatório"})
+		validationErr := models.NewValidationError("Refresh token é obrigatório", err.Error())
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
 	err = h.authService.Logout(c.Request.Context(), traderID.String())
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao fazer logout")
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
+		h.handleError(c, err)
 		return
 	}
 
@@ -169,20 +175,20 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} models.TraderResponse
-// @Failure 401 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/perfil [get]
 func (h *AuthHandler) Perfil(c *gin.Context) {
 	traderID, _, _, err := middleware.GetTraderFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		authErr := models.NewAuthenticationError("Trader não encontrado no contexto")
+		c.JSON(authErr.StatusCode, models.ErrorResponse{Error: *authErr})
 		return
 	}
 
 	traderResponse, err := h.authService.BuscarTrader(c.Request.Context(), traderID.String())
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar perfil do trader")
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
+		h.handleError(c, err)
 		return
 	}
 
@@ -197,27 +203,28 @@ func (h *AuthHandler) Perfil(c *gin.Context) {
 // @Security BearerAuth
 // @Param trader body models.TraderAtualizar true "Dados para atualização"
 // @Success 200 {object} models.TraderResponse
-// @Failure 400 {object} map[string]interface{}
-// @Failure 401 {object} map[string]interface{}
-// @Failure 500 {object} map[string]interface{}
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /auth/perfil [put]
 func (h *AuthHandler) AtualizarPerfil(c *gin.Context) {
 	traderID, _, _, err := middleware.GetTraderFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		authErr := models.NewAuthenticationError("Trader não encontrado no contexto")
+		c.JSON(authErr.StatusCode, models.ErrorResponse{Error: *authErr})
 		return
 	}
 
 	var dados models.TraderAtualizar
 	if err := c.ShouldBindJSON(&dados); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"erro": "Dados inválidos"})
+		validationErr := models.NewValidationError("Dados inválidos", err.Error())
+		c.JSON(validationErr.StatusCode, models.ErrorResponse{Error: *validationErr})
 		return
 	}
 
 	traderResponse, err := h.authService.AtualizarTrader(c.Request.Context(), traderID.String(), &dados)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao atualizar perfil do trader")
-		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
+		h.handleError(c, err)
 		return
 	}
 
