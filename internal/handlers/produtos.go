@@ -4,12 +4,13 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"mobgran-importer-go/internal/middleware"
 	"mobgran-importer-go/internal/models"
 	"mobgran-importer-go/internal/services"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type ProdutosHandler struct {

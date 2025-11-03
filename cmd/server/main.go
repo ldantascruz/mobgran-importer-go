@@ -59,11 +59,13 @@ func main() {
 	}
 	log.Println("✅ RunMigrations() concluído com sucesso!")
 
-	// Inicializar serviços de autenticação
+	// Inicializar serviços
 	authService := services.NewAuthService(dbClient)
+	produtosService := services.NewProdutosService(dbClient.DB)
 
 	// Inicializar handlers
 	authHandler := handlers.NewAuthHandler(authService)
+	produtosHandler := handlers.NewProdutosHandler(produtosService)
 
 	// Configurar Gin
 	if cfg.LogLevel != "debug" {
@@ -75,6 +77,7 @@ func main() {
 	// Middlewares
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
+	router.Use(middleware.SecurityHeadersMiddleware()) // Adicionar headers de segurança
 	router.Use(middleware.CORSMiddleware())
 	router.Use(middleware.LoggerMiddleware())
 	router.Use(middleware.RecoveryMiddleware())
@@ -115,6 +118,22 @@ func main() {
 		auth.GET("/perfil", middleware.AuthMiddleware(), authHandler.Perfil)
 		auth.PUT("/perfil", middleware.AuthMiddleware(), authHandler.AtualizarPerfil)
 	}
+
+	// Rotas de produtos
+	produtos := router.Group("/produtos")
+	{
+		produtos.GET("/cavaletes", middleware.AuthMiddleware(), produtosHandler.ListarCavaletesDisponiveis)
+		produtos.POST("/aprovar", middleware.AuthMiddleware(), produtosHandler.AprovarProduto)
+		produtos.GET("/", middleware.AuthMiddleware(), produtosHandler.ListarProdutosAprovados)
+		produtos.PUT("/:id", middleware.AuthMiddleware(), produtosHandler.AtualizarProduto)
+		produtos.GET("/:id", middleware.AuthMiddleware(), produtosHandler.BuscarProduto)
+		produtos.DELETE("/:id", middleware.AuthMiddleware(), produtosHandler.RemoverProduto)
+		produtos.GET("/estatisticas", middleware.AuthMiddleware(), produtosHandler.ObterEstatisticas)
+		produtos.DELETE("/limpar", middleware.AuthMiddleware(), produtosHandler.LimparTodosRegistros)
+	}
+
+	// Rotas públicas
+	router.GET("/vitrine/publica", produtosHandler.ListarVitrinePublica)
 
 	// Rota do Swagger
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

@@ -21,16 +21,18 @@ SELECT
     c.nome_material,
     c.nome_espessura,
     c.nome_acabamento,
+    c.nome_classificacao,
+    c.comprimento,
     c.largura,
     c.altura,
     c.peso,
     c.metragem,
-    c.imagem_url,
-    c.classificacao,
+    c.imagem_principal,
+    c.produto_cliente,
     
     -- Dados da oferta
     o.id as oferta_id,
-    o.uuid as oferta_uuid,
+    o.uuid_link as oferta_uuid,
     o.nome_empresa as fornecedor,
     
     -- Metadados
@@ -39,7 +41,7 @@ SELECT
 FROM produtos_aprovados pa
 JOIN traders t ON pa.trader_id = t.id
 JOIN cavaletes c ON pa.cavalete_id = c.id
-JOIN ofertas o ON pa.oferta_id = o.id
+JOIN ofertas o ON c.oferta_id = o.id
 WHERE pa.visivel = true AND t.ativo = true;
 
 -- View: Estatísticas do Trader
@@ -78,11 +80,10 @@ GROUP BY t.id, t.nome, t.email, t.empresa;
 CREATE OR REPLACE VIEW vw_ofertas_resumo AS
 SELECT 
     o.id,
-    o.uuid,
+    o.uuid_link,
     o.trader_id,
     t.nome as trader_nome,
     o.nome_empresa,
-    o.nome_vendedor,
     COUNT(DISTINCT c.id) as total_cavaletes,
     COALESCE(SUM(c.metragem), 0) as metragem_total,
     o.created_at,
@@ -90,7 +91,7 @@ SELECT
 FROM ofertas o
 JOIN traders t ON o.trader_id = t.id
 LEFT JOIN cavaletes c ON c.oferta_id = o.id
-GROUP BY o.id, o.uuid, o.trader_id, t.nome, o.nome_empresa, o.nome_vendedor, o.created_at, o.updated_at;
+GROUP BY o.id, o.uuid_link, o.trader_id, t.nome, o.nome_empresa, o.created_at, o.updated_at;
 
 -- Comentários
 COMMENT ON VIEW vw_vitrine_trader IS 'View completa da vitrine de cada trader com joins';

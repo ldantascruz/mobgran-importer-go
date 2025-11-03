@@ -4,7 +4,7 @@
 -- Tabela de Ofertas (importadas do Mobgran)
 CREATE TABLE IF NOT EXISTS ofertas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    uuid VARCHAR(255) UNIQUE NOT NULL,
+    uuid_link VARCHAR(255) UNIQUE NOT NULL,
     trader_id UUID NOT NULL REFERENCES traders(id) ON DELETE CASCADE,
     
     -- Dados básicos
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS ofertas (
 CREATE TABLE IF NOT EXISTS cavaletes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     oferta_id UUID NOT NULL REFERENCES ofertas(id) ON DELETE CASCADE,
-    oferta_uuid VARCHAR(255) NOT NULL,
+    oferta_uuid_link VARCHAR(255) NOT NULL,
     
     -- Informações do material
     nome_material VARCHAR(255) NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS produtos_aprovados (
 
 -- Índices (usando IF NOT EXISTS)
 CREATE INDEX IF NOT EXISTS idx_ofertas_trader_id ON ofertas(trader_id);
-CREATE INDEX IF NOT EXISTS idx_ofertas_uuid ON ofertas(uuid);
+CREATE INDEX IF NOT EXISTS idx_ofertas_uuid_link ON ofertas(uuid_link);
 CREATE INDEX IF NOT EXISTS idx_cavaletes_oferta_id ON cavaletes(oferta_id);
 CREATE INDEX IF NOT EXISTS idx_cavaletes_material ON cavaletes(nome_material);
 CREATE INDEX IF NOT EXISTS idx_itens_cavalete_id ON itens(cavalete_id);

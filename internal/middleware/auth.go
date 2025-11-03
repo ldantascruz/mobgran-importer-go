@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"mobgran-importer-go/internal/auth"
+	"mobgran-importer-go/internal/models"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -16,7 +19,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// JWTClaims representa as claims customizadas do JWT
+// JWTClaims representa as claims customizadas do JWT (mantido para compatibilidade)
 type JWTClaims struct {
 	TraderID uuid.UUID `json:"trader_id"`
 	Email    string    `json:"email"`
@@ -24,43 +27,144 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// AuthMiddleware verifica se o token JWT é válido
+// AuthMiddleware verifica se o token JWT é válido seguindo as práticas recomendadas
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"erro": "Token de autorização não fornecido",
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error: models.APIError{
+					Type:    "authentication_error",
+					Message: "Token de autorização não fornecido",
+				},
 			})
 			c.Abort()
 			return
 		}
 
 		// Verifica se o header tem o formato "Bearer <token>"
-		tokenParts := strings.Split(authHeader, " ")
-		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"erro": "Formato de token inválido. Use: Bearer <token>",
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error: models.APIError{
+					Type:    "authentication_error",
+					Message: "Formato de token inválido. Use: Bearer <token>",
+				},
 			})
 			c.Abort()
 			return
 		}
 
-		tokenString := tokenParts[1]
-		claims, err := ValidateJWT(tokenString)
+		// Tentar validar como token customizado primeiro
+		if customClaims, err := auth.ParseCustomJWT(tokenString); err == nil {
+			userCtx := &auth.UserContext{
+				UserID:    customClaims.Subject,
+				Email:     customClaims.Email,
+				Nome:      customClaims.Nome,
+				Role:      customClaims.Role,
+				SessionID: "", // Não aplicável para tokens customizados
+			}
+
+			// Adicionar ao contexto da requisição
+			ctx := auth.WithUserContext(c.Request.Context(), userCtx)
+			c.Request = c.Request.WithContext(ctx)
+
+			// Manter compatibilidade com código existente
+			c.Set("trader_id", customClaims.TraderID)
+			c.Set("trader_email", customClaims.Email)
+			c.Set("trader_nome", customClaims.Nome)
+
+			c.Next()
+			return
+		}
+
+		// Tentar validar como token do Supabase
+		if supabaseClaims, err := auth.ParseSupabaseJWT(tokenString); err == nil {
+			userCtx := &auth.UserContext{
+				UserID:    supabaseClaims.Subject,
+				Email:     supabaseClaims.Email,
+				Nome:      "", // Supabase não tem nome nas claims padrão
+				Role:      supabaseClaims.Role,
+				SessionID: supabaseClaims.SessionID,
+			}
+
+			// Adicionar ao contexto da requisição
+			ctx := auth.WithUserContext(c.Request.Context(), userCtx)
+			c.Request = c.Request.WithContext(ctx)
+
+			// Manter compatibilidade com código existente
+			if userID, err := uuid.Parse(supabaseClaims.Subject); err == nil {
+				c.Set("trader_id", userID)
+			}
+			c.Set("trader_email", supabaseClaims.Email)
+			c.Set("trader_nome", "")
+
+			c.Next()
+			return
+		}
+
+		// Se nenhum dos dois funcionou, token inválido
+		logrus.WithField("token_prefix", tokenString[:min(10, len(tokenString))]).Warn("Token JWT inválido")
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+			Error: models.APIError{
+				Type:    "authentication_error",
+				Message: "Token inválido ou expirado",
+			},
+		})
+		c.Abort()
+	}
+}
+
+// SupabaseAuthMiddleware middleware específico para tokens do Supabase
+func SupabaseAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error: models.APIError{
+					Type:    "authentication_error",
+					Message: "Token de autorização não fornecido",
+				},
+			})
+			c.Abort()
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error: models.APIError{
+					Type:    "authentication_error",
+					Message: "Formato de token inválido. Use: Bearer <token>",
+				},
+			})
+			c.Abort()
+			return
+		}
+
+		claims, err := auth.ParseSupabaseJWT(tokenString)
 		if err != nil {
-			logrus.WithError(err).Warn("Token JWT inválido")
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"erro": "Token inválido ou expirado",
+			logrus.WithError(err).Warn("Token Supabase inválido")
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error: models.APIError{
+					Type:    "authentication_error",
+					Message: "Token inválido ou expirado",
+				},
 			})
 			c.Abort()
 			return
 		}
 
-		// Adiciona as informações do trader no contexto
-		c.Set("trader_id", claims.TraderID)
-		c.Set("trader_email", claims.Email)
-		c.Set("trader_nome", claims.Nome)
+		userCtx := &auth.UserContext{
+			UserID:    claims.Subject,
+			Email:     claims.Email,
+			Role:      claims.Role,
+			SessionID: claims.SessionID,
+		}
+
+		// Adicionar ao contexto da requisição
+		ctx := auth.WithUserContext(c.Request.Context(), userCtx)
+		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
 	}
@@ -185,12 +289,41 @@ func GetTraderFromContext(c *gin.Context) (uuid.UUID, string, string, error) {
 }
 
 // CORS middleware para permitir requisições cross-origin
+// CORSMiddleware configurado para frontend Next.js seguindo práticas recomendadas
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+
+		// Lista de origens permitidas (configurável via variáveis de ambiente)
+		allowedOrigins := []string{
+			"http://localhost:3000",  // Next.js dev
+			"http://localhost:3001",  // Next.js dev alternativo
+			"https://localhost:3000", // Next.js dev com HTTPS
+			"https://localhost:3001", // Next.js dev alternativo com HTTPS
+		}
+
+		// Adicionar origens de produção se configuradas
+		if prodOrigin := os.Getenv("FRONTEND_URL"); prodOrigin != "" {
+			allowedOrigins = append(allowedOrigins, prodOrigin)
+		}
+
+		// Verificar se a origem está na lista permitida
+		isAllowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				isAllowed = true
+				break
+			}
+		}
+
+		if isAllowed {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
+
 		c.Header("Access-Control-Allow-Credentials", "true")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Header("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		c.Header("Access-Control-Max-Age", "86400") // Cache preflight por 24 horas
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -201,17 +334,43 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
+// SecurityHeadersMiddleware adiciona headers de segurança recomendados
+func SecurityHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Previne ataques XSS
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+
+		// Content Security Policy básico
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'")
+
+		// Força HTTPS em produção
+		if os.Getenv("GIN_MODE") == "release" {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		// Previne referrer leakage
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// Controla recursos que podem ser carregados
+		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
+		c.Next()
+	}
+}
+
 // LoggerMiddleware personalizado para logging estruturado
 func LoggerMiddleware() gin.HandlerFunc {
 	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		logrus.WithFields(logrus.Fields{
-			"status_code":  param.StatusCode,
-			"latency":      param.Latency,
-			"client_ip":    param.ClientIP,
-			"method":       param.Method,
-			"path":         param.Path,
-			"user_agent":   param.Request.UserAgent(),
-			"error":        param.ErrorMessage,
+			"status_code": param.StatusCode,
+			"latency":     param.Latency,
+			"client_ip":   param.ClientIP,
+			"method":      param.Method,
+			"path":        param.Path,
+			"user_agent":  param.Request.UserAgent(),
+			"error":       param.ErrorMessage,
 		}).Info("HTTP Request")
 		return ""
 	})
@@ -226,8 +385,11 @@ func RecoveryMiddleware() gin.HandlerFunc {
 			"path":   c.Request.URL.Path,
 		}).Error("Panic recuperado")
 
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"erro": "Erro interno do servidor",
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error: models.APIError{
+				Type:    "internal_error",
+				Message: "Erro interno do servidor",
+			},
 		})
 	})
 }

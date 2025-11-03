@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	
+	"mobgran-importer-go/internal/auth"
 	"mobgran-importer-go/internal/models"
 	"mobgran-importer-go/pkg/database"
 )
@@ -75,6 +76,31 @@ func (s *AuthService) RegistrarTrader(ctx context.Context, registro *models.Trad
 	}
 
 	return trader, nil
+}
+
+// LoginWithToken autentica um trader e retorna AuthResponse com JWT token
+func (s *AuthService) LoginWithToken(ctx context.Context, login *models.TraderLogin) (*models.AuthResponse, error) {
+	// Primeiro autentica o trader
+	trader, err := s.Login(ctx, login)
+	if err != nil {
+		return nil, err
+	}
+
+	// Gera o JWT token
+	token, expiresAt, err := auth.GenerateCustomJWT(trader.ID, trader.Email, trader.Nome)
+	if err != nil {
+		return nil, models.NewInternalError("Erro ao gerar token de autenticação")
+	}
+
+	// Cria a resposta de autenticação
+	authResponse := &models.AuthResponse{
+		Token:        token,
+		RefreshToken: "", // TODO: Implementar refresh token se necessário
+		ExpiresAt:    expiresAt,
+		Trader:       trader.ToResponse(),
+	}
+
+	return authResponse, nil
 }
 
 // Login autentica um trader e retorna os dados

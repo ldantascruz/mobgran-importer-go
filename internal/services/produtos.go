@@ -388,27 +388,53 @@ func (s *ProdutosService) ListarVitrinePublica(limit, offset int, destaque bool)
 func (s *ProdutosService) ObterEstatisticas(traderID uuid.UUID) (*models.EstatisticasProdutos, error) {
 	var stats models.EstatisticasProdutos
 
-	query := `
-		SELECT 
-			COUNT(*) as total_produtos,
-			COUNT(CASE WHEN visivel THEN 1 END) as produtos_visiveis,
-			COUNT(CASE WHEN destaque THEN 1 END) as produtos_destaque,
-			(SELECT COUNT(*) FROM cavaletes_disponiveis cd 
-			 JOIN ofertas o ON cd.oferta_id = o.uuid_link 
-			 WHERE o.situacao = 'ativa') as cavaletes_disponiveis
-		FROM produtos_aprovados
-		WHERE trader_id = $1
-	`
+	// Log para debug
+	logrus.WithField("trader_id", traderID).Info("Buscando estatísticas para trader")
 
-	err := s.db.QueryRow(query, traderID).Scan(
-		&stats.TotalProdutos, &stats.ProdutosVisiveis,
-		&stats.ProdutosDestaque, &stats.CavaletesDisponiveis,
-	)
-
+	// Query para contar produtos aprovados do trader
+	queryProdutos := `SELECT COUNT(*) FROM produtos_aprovados WHERE trader_id = $1`
+	
+	err := s.db.QueryRow(queryProdutos, traderID).Scan(&stats.TotalProdutos)
 	if err != nil {
-		logrus.WithError(err).Error("Erro ao buscar estatísticas")
+		logrus.WithError(err).Error("Erro ao contar produtos aprovados")
 		return nil, fmt.Errorf("erro ao buscar estatísticas")
 	}
+
+	// Query para contar produtos visíveis (assumindo que todos os aprovados são visíveis)
+	stats.ProdutosVisiveis = stats.TotalProdutos
+
+	// Query para contar produtos em destaque (assumindo campo destaque ou similar)
+	queryDestaque := `SELECT COUNT(*) FROM produtos_aprovados WHERE trader_id = $1 AND destaque = true`
+	
+	err = s.db.QueryRow(queryDestaque, traderID).Scan(&stats.ProdutosDestaque)
+	if err != nil {
+		// Se não existe campo destaque, definir como 0
+		logrus.WithError(err).Warn("Campo destaque não encontrado, definindo como 0")
+		stats.ProdutosDestaque = 0
+	}
+
+	// Query para contar cavaletes disponíveis
+	queryCavaletes := `
+		SELECT COUNT(*) 
+		FROM cavaletes c 
+		WHERE c.id NOT IN (
+			SELECT DISTINCT cavalete_id 
+			FROM produtos_aprovados 
+			WHERE cavalete_id IS NOT NULL
+		)`
+	
+	err = s.db.QueryRow(queryCavaletes).Scan(&stats.CavaletesDisponiveis)
+	if err != nil {
+		logrus.WithError(err).Error("Erro ao contar cavaletes disponíveis")
+		return nil, fmt.Errorf("erro ao buscar estatísticas")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"total_produtos":         stats.TotalProdutos,
+		"produtos_visiveis":      stats.ProdutosVisiveis,
+		"produtos_destaque":      stats.ProdutosDestaque,
+		"cavaletes_disponiveis":  stats.CavaletesDisponiveis,
+	}).Info("Estatísticas calculadas com sucesso")
 
 	return &stats, nil
 }

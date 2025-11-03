@@ -88,7 +88,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	authResponse, err := h.authService.Login(c.Request.Context(), &req)
+	authResponse, err := h.authService.LoginWithToken(c.Request.Context(), &req)
 	if err != nil {
 		h.handleError(c, err)
 		return
