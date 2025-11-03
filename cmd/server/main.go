@@ -60,12 +60,12 @@ func main() {
 	log.Println("✅ RunMigrations() concluído com sucesso!")
 
 	// Inicializar serviços
-	authService := services.NewAuthService(dbClient)
 	produtosService := services.NewProdutosService(dbClient.DB)
+	supabaseAuthService := services.NewSupabaseAuthService(cfg, logger)
 
 	// Inicializar handlers
-	authHandler := handlers.NewAuthHandler(authService)
 	produtosHandler := handlers.NewProdutosHandler(produtosService)
+	supabaseAuthHandler := handlers.NewSupabaseAuthHandler(supabaseAuthService, logger)
 
 	// Configurar Gin
 	if cfg.LogLevel != "debug" {
@@ -108,28 +108,28 @@ func main() {
 		})
 	})
 
-	// Rotas de autenticação
-	auth := router.Group("/auth")
+	// Rotas de autenticação Supabase
+	supabaseAuth := router.Group("/supabase/auth")
 	{
-		auth.POST("/registrar", authHandler.Registrar)
-		auth.POST("/login", authHandler.Login)
-		auth.POST("/refresh", authHandler.RefreshToken)
-		auth.POST("/logout", middleware.AuthMiddleware(), authHandler.Logout)
-		auth.GET("/perfil", middleware.AuthMiddleware(), authHandler.Perfil)
-		auth.PUT("/perfil", middleware.AuthMiddleware(), authHandler.AtualizarPerfil)
+		supabaseAuth.POST("/admin/create", supabaseAuthHandler.CriarUsuarioAdmin)
+		supabaseAuth.POST("/register", supabaseAuthHandler.Registrar)
+		supabaseAuth.POST("/login", supabaseAuthHandler.Login)
+		supabaseAuth.GET("/user", supabaseAuthHandler.ObterUsuario)
+		supabaseAuth.POST("/refresh", supabaseAuthHandler.RenovarToken)
+		supabaseAuth.POST("/logout", supabaseAuthHandler.Logout)
 	}
 
 	// Rotas de produtos
 	produtos := router.Group("/produtos")
 	{
-		produtos.GET("/cavaletes", middleware.AuthMiddleware(), produtosHandler.ListarCavaletesDisponiveis)
-		produtos.POST("/aprovar", middleware.AuthMiddleware(), produtosHandler.AprovarProduto)
-		produtos.GET("/", middleware.AuthMiddleware(), produtosHandler.ListarProdutosAprovados)
-		produtos.PUT("/:id", middleware.AuthMiddleware(), produtosHandler.AtualizarProduto)
-		produtos.GET("/:id", middleware.AuthMiddleware(), produtosHandler.BuscarProduto)
-		produtos.DELETE("/:id", middleware.AuthMiddleware(), produtosHandler.RemoverProduto)
-		produtos.GET("/estatisticas", middleware.AuthMiddleware(), produtosHandler.ObterEstatisticas)
-		produtos.DELETE("/limpar", middleware.AuthMiddleware(), produtosHandler.LimparTodosRegistros)
+		produtos.GET("/cavaletes", middleware.SupabaseAuthMiddleware(), produtosHandler.ListarCavaletesDisponiveis)
+		produtos.POST("/aprovar", middleware.SupabaseAuthMiddleware(), produtosHandler.AprovarProduto)
+		produtos.GET("/", middleware.SupabaseAuthMiddleware(), produtosHandler.ListarProdutosAprovados)
+		produtos.PUT("/:id", middleware.SupabaseAuthMiddleware(), produtosHandler.AtualizarProduto)
+		produtos.GET("/:id", middleware.SupabaseAuthMiddleware(), produtosHandler.BuscarProduto)
+		produtos.DELETE("/:id", middleware.SupabaseAuthMiddleware(), produtosHandler.RemoverProduto)
+		produtos.GET("/estatisticas", middleware.SupabaseAuthMiddleware(), produtosHandler.ObterEstatisticas)
+		produtos.DELETE("/limpar", middleware.SupabaseAuthMiddleware(), produtosHandler.LimparTodosRegistros)
 	}
 
 	// Rotas públicas

@@ -1,16 +1,68 @@
 basePath: /
 definitions:
-  models.AuthResponse:
+  handlers.RefreshTokenRequest:
     properties:
-      expires_at:
-        type: string
       refresh_token:
         type: string
-      token:
-        type: string
-      trader:
-        $ref: '#/definitions/models.TraderResponse'
+    required:
+    - refresh_token
     type: object
+  handlers.SupabaseLoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  handlers.SupabaseRegistroRequest:
+    properties:
+      data:
+        additionalProperties: true
+        type: object
+      email:
+        type: string
+      password:
+        minLength: 6
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  models.APIError:
+    properties:
+      details:
+        type: string
+      message:
+        type: string
+      type:
+        $ref: '#/definitions/models.ErrorType'
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/models.APIError'
+    type: object
+  models.ErrorType:
+    enum:
+    - validation_error
+    - authentication_error
+    - authorization_error
+    - not_found_error
+    - conflict_error
+    - internal_error
+    - bad_request_error
+    type: string
+    x-enum-varnames:
+    - ErrorTypeValidation
+    - ErrorTypeAuthentication
+    - ErrorTypeAuthorization
+    - ErrorTypeNotFound
+    - ErrorTypeConflict
+    - ErrorTypeInternal
+    - ErrorTypeBadRequest
   models.EstatisticasProdutos:
     properties:
       cavaletes_disponiveis:
@@ -110,69 +162,27 @@ definitions:
       visivel:
         type: boolean
     type: object
-  models.TraderAtualizar:
+  models.SupabaseAuthResponse:
     properties:
-      empresa:
+      session:
+        $ref: '#/definitions/models.SupabaseSession'
+      user:
+        $ref: '#/definitions/models.SupabaseUser'
+    type: object
+  models.SupabaseSession:
+    properties:
+      access_token:
         type: string
-      nome:
-        maxLength: 255
-        minLength: 2
-        type: string
-      telefone:
+      expires_at:
+        type: integer
+      refresh_token:
         type: string
     type: object
-  models.TraderLogin:
+  models.SupabaseUser:
     properties:
       email:
-        type: string
-      senha:
-        type: string
-    required:
-    - email
-    - senha
-    type: object
-  models.TraderRegistro:
-    properties:
-      email:
-        type: string
-      empresa:
-        type: string
-      nome:
-        maxLength: 255
-        minLength: 2
-        type: string
-      senha:
-        maxLength: 100
-        minLength: 6
-        type: string
-      telefone:
-        type: string
-    required:
-    - email
-    - nome
-    - senha
-    type: object
-  models.TraderResponse:
-    properties:
-      ativo:
-        type: boolean
-      created_at:
-        type: string
-      email:
-        type: string
-      email_verificado:
-        type: boolean
-      empresa:
         type: string
       id:
-        type: string
-      nome:
-        type: string
-      telefone:
-        type: string
-      ultimo_login:
-        type: string
-      updated_at:
         type: string
     type: object
 host: localhost:8080
@@ -181,7 +191,8 @@ info:
     email: support@swagger.io
     name: API Support
     url: http://www.swagger.io/support
-  description: API para importação de ofertas do Mobgran para Supabase
+  description: "API para importação de ofertas do Mobgran com PostgreSQL - HOT RELOAD
+    FUNCIONANDO! \U0001F525"
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
@@ -189,6 +200,33 @@ info:
   title: Mobgran Importer API
   version: "1.0"
 paths:
+  /admin/limpar-dados:
+    delete:
+      description: Remove todos os registros de produtos, cavaletes, ofertas e dados
+        relacionados do banco de dados
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Limpar todos os registros do banco de dados
+      tags:
+      - admin
   /api/extrair-uuid:
     post:
       consumes:
@@ -279,224 +317,6 @@ paths:
       summary: Valida URL do Mobgran
       tags:
       - validacao
-  /auth/login:
-    post:
-      consumes:
-      - application/json
-      description: Autentica um trader no sistema
-      parameters:
-      - description: Credenciais do trader
-        in: body
-        name: login
-        required: true
-        schema:
-          $ref: '#/definitions/models.TraderLogin'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.AuthResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      summary: Login do trader
-      tags:
-      - auth
-  /auth/logout:
-    post:
-      consumes:
-      - application/json
-      description: Faz logout do trader (revoga refresh token)
-      parameters:
-      - description: Refresh token
-        in: body
-        name: refresh
-        required: true
-        schema:
-          additionalProperties:
-            type: string
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Logout
-      tags:
-      - auth
-  /auth/perfil:
-    get:
-      description: Obtém o perfil do trader autenticado
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.TraderResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Perfil do trader
-      tags:
-      - auth
-    put:
-      consumes:
-      - application/json
-      description: Atualiza o perfil do trader autenticado
-      parameters:
-      - description: Dados para atualização
-        in: body
-        name: trader
-        required: true
-        schema:
-          $ref: '#/definitions/models.TraderAtualizar'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.TraderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Atualizar perfil
-      tags:
-      - auth
-  /auth/refresh:
-    post:
-      consumes:
-      - application/json
-      description: Renova o token de acesso usando o refresh token
-      parameters:
-      - description: Refresh token
-        in: body
-        name: refresh
-        required: true
-        schema:
-          additionalProperties:
-            type: string
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.AuthResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      summary: Refresh token
-      tags:
-      - auth
-  /auth/registrar:
-    post:
-      consumes:
-      - application/json
-      description: Registra um novo trader no sistema
-      parameters:
-      - description: Dados do trader
-        in: body
-        name: trader
-        required: true
-        schema:
-          $ref: '#/definitions/models.TraderRegistro'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/models.AuthResponse'
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "409":
-          description: Conflict
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      summary: Registrar novo trader
-      tags:
-      - auth
   /health:
     get:
       description: Verifica se a aplicação está funcionando
@@ -789,6 +609,160 @@ paths:
       summary: Estatísticas de produtos
       tags:
       - produtos
+  /supabase/auth/admin/create:
+    post:
+      consumes:
+      - application/json
+      description: Cria um novo usuário admin pré-confirmado usando Supabase Auth
+      parameters:
+      - description: Dados do usuário admin
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SupabaseRegistroRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.SupabaseAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Criar usuário admin no Supabase
+      tags:
+      - supabase-auth
+  /supabase/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Autentica um usuário usando Supabase Auth
+      parameters:
+      - description: Credenciais do usuário
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.SupabaseLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SupabaseAuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Login no Supabase
+      tags:
+      - supabase-auth
+  /supabase/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Faz logout do usuário no Supabase
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - supabase-auth
+  /supabase/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Renova o token de acesso usando o refresh token
+      parameters:
+      - description: Refresh token
+        in: body
+        name: refresh
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SupabaseSession'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Renovar token
+      tags:
+      - supabase-auth
+  /supabase/auth/user:
+    get:
+      consumes:
+      - application/json
+      description: Obtém informações do usuário autenticado no Supabase
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SupabaseUser'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Obter usuário atual
+      tags:
+      - supabase-auth
   /vitrine/publica:
     get:
       description: Lista produtos na vitrine pública (não requer autenticação)

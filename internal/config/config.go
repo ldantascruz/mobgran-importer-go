@@ -21,9 +21,10 @@ type Config struct {
 	DBPassword string
 	DBSSLMode  string
 
-	// Supabase (mantido para compatibilidade durante migração)
-	SupabaseURL string
-	SupabaseKey string
+	// Supabase
+	SupabaseURL        string `mapstructure:"SUPABASE_URL"`
+	SupabaseKey        string `mapstructure:"SUPABASE_KEY"`
+	SupabaseServiceKey string `mapstructure:"SUPABASE_SERVICE_KEY"`
 
 	// Logging
 	LogLevel string
@@ -47,8 +48,9 @@ func LoadConfig() (*Config, error) {
 		DBUser:        getEnvOrDefault("DB_USER", "mobgran_user"),
 		DBPassword:    getEnvOrDefault("DB_PASSWORD", "mobgran_password"),
 		DBSSLMode:     getEnvOrDefault("DB_SSLMODE", "disable"),
-		SupabaseURL:   getEnvOrDefault("SUPABASE_URL", ""),
-		SupabaseKey:   getEnvOrDefault("SUPABASE_KEY", ""),
+		SupabaseURL:        getEnvOrDefault("SUPABASE_URL", ""),
+		SupabaseKey:        getEnvOrDefault("SUPABASE_KEY", ""),
+		SupabaseServiceKey: getEnvOrDefault("SUPABASE_SERVICE_KEY", ""),
 		LogLevel:      getEnvOrDefault("LOG_LEVEL", "info"),
 		MobgranAPIURL: getEnvOrDefault("MOBGRAN_API_URL", "https://api.mobgran.com.br/api/v1/ofertas/"),
 	}

@@ -171,12 +171,29 @@ type TokenClaims struct {
 	Nome     string    `json:"nome"`
 }
 
-// EstatisticasProdutos representa estatísticas dos produtos do trader
+// EstatisticasProdutos representa as estatísticas dos produtos de um trader
 type EstatisticasProdutos struct {
-	TotalProdutos     int `json:"total_produtos"`
-	ProdutosVisiveis  int `json:"produtos_visiveis"`
-	ProdutosDestaque  int `json:"produtos_destaque"`
+	TotalProdutos        int `json:"total_produtos"`
+	ProdutosVisiveis     int `json:"produtos_visiveis"`
+	ProdutosDestaque     int `json:"produtos_destaque"`
 	CavaletesDisponiveis int `json:"cavaletes_disponiveis"`
+}
+
+// Modelos relacionados ao Supabase
+type SupabaseUser struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+type SupabaseSession struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresAt    int64  `json:"expires_at"`
+}
+
+type SupabaseAuthResponse struct {
+	User    *SupabaseUser    `json:"user,omitempty"`
+	Session *SupabaseSession `json:"session,omitempty"`
 }
 
 // ToResponse converte Trader para TraderResponse

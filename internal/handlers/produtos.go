@@ -36,9 +36,16 @@ func NewProdutosHandler(produtosService *services.ProdutosService) *ProdutosHand
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/cavaletes [get]
 func (h *ProdutosHandler) ListarCavaletesDisponiveis(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -58,7 +65,7 @@ func (h *ProdutosHandler) ListarCavaletesDisponiveis(c *gin.Context) {
 		}
 	}
 
-	cavaletes, err := h.produtosService.ListarCavaletesDisponiveis(traderID, limit, offset)
+	cavaletes, err := h.produtosService.ListarCavaletesDisponiveis(userID, limit, offset)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao listar cavaletes disponíveis")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
@@ -87,9 +94,16 @@ func (h *ProdutosHandler) ListarCavaletesDisponiveis(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/aprovar [post]
 func (h *ProdutosHandler) AprovarProduto(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -100,7 +114,7 @@ func (h *ProdutosHandler) AprovarProduto(c *gin.Context) {
 		return
 	}
 
-	produto, err := h.produtosService.AprovarProduto(traderID, &req)
+	produto, err := h.produtosService.AprovarProduto(userID, &req)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao aprovar produto")
 		if err.Error() == "produto já foi aprovado" {
@@ -130,9 +144,16 @@ func (h *ProdutosHandler) AprovarProduto(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/aprovados [get]
 func (h *ProdutosHandler) ListarProdutosAprovados(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -152,7 +173,7 @@ func (h *ProdutosHandler) ListarProdutosAprovados(c *gin.Context) {
 		}
 	}
 
-	produtos, err := h.produtosService.ListarProdutosAprovados(traderID, limit, offset)
+	produtos, err := h.produtosService.ListarProdutosAprovados(userID, limit, offset)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao listar produtos aprovados")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
@@ -182,9 +203,16 @@ func (h *ProdutosHandler) ListarProdutosAprovados(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/{id} [put]
 func (h *ProdutosHandler) AtualizarProduto(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -202,7 +230,7 @@ func (h *ProdutosHandler) AtualizarProduto(c *gin.Context) {
 		return
 	}
 
-	produto, err := h.produtosService.AtualizarProduto(traderID, produtoID, &req)
+	produto, err := h.produtosService.AtualizarProduto(userID, produtoID, &req)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao atualizar produto")
 		if err.Error() == "produto não encontrado" {
@@ -229,9 +257,16 @@ func (h *ProdutosHandler) AtualizarProduto(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/{id} [get]
 func (h *ProdutosHandler) BuscarProduto(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -242,7 +277,7 @@ func (h *ProdutosHandler) BuscarProduto(c *gin.Context) {
 		return
 	}
 
-	produto, err := h.produtosService.BuscarProduto(traderID, produtoID)
+	produto, err := h.produtosService.BuscarProduto(userID, produtoID)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao buscar produto")
 		if err.Error() == "produto não encontrado" {
@@ -269,9 +304,16 @@ func (h *ProdutosHandler) BuscarProduto(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/{id} [delete]
 func (h *ProdutosHandler) RemoverProduto(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
+		return
+	}
+
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
 		return
 	}
 
@@ -282,7 +324,7 @@ func (h *ProdutosHandler) RemoverProduto(c *gin.Context) {
 		return
 	}
 
-	err = h.produtosService.RemoverProduto(traderID, produtoID)
+	err = h.produtosService.RemoverProduto(userID, produtoID)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao remover produto")
 		if err.Error() == "produto não encontrado" {
@@ -350,13 +392,20 @@ func (h *ProdutosHandler) ListarVitrinePublica(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /produtos/estatisticas [get]
 func (h *ProdutosHandler) ObterEstatisticas(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userIDStr, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
 		return
 	}
 
-	estatisticas, err := h.produtosService.ObterEstatisticas(traderID)
+	// Converte userID string para UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"erro": "ID do usuário inválido"})
+		return
+	}
+
+	estatisticas, err := h.produtosService.ObterEstatisticas(userID)
 	if err != nil {
 		logrus.WithError(err).Error("Erro ao obter estatísticas")
 		c.JSON(http.StatusInternalServerError, gin.H{"erro": "Erro interno do servidor"})
@@ -376,13 +425,13 @@ func (h *ProdutosHandler) ObterEstatisticas(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{}
 // @Router /admin/limpar-dados [delete]
 func (h *ProdutosHandler) LimparTodosRegistros(c *gin.Context) {
-	traderID, _, _, err := middleware.GetTraderFromContext(c)
+	userID, _, _, err := middleware.GetSupabaseUserFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Trader não encontrado no contexto"})
+		c.JSON(http.StatusUnauthorized, gin.H{"erro": "Usuário não encontrado no contexto"})
 		return
 	}
 
-	logrus.WithField("trader_id", traderID).Info("Iniciando limpeza de todos os registros")
+	logrus.WithField("user_id", userID).Info("Iniciando limpeza de todos os registros")
 
 	err = h.produtosService.LimparTodosRegistros()
 	if err != nil {
@@ -393,7 +442,7 @@ func (h *ProdutosHandler) LimparTodosRegistros(c *gin.Context) {
 		return
 	}
 
-	logrus.WithField("trader_id", traderID).Info("Limpeza de todos os registros concluída com sucesso")
+	logrus.WithField("user_id", userID).Info("Limpeza de todos os registros concluída com sucesso")
 
 	c.JSON(http.StatusOK, gin.H{
 		"sucesso":  true,
